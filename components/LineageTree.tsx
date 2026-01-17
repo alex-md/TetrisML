@@ -13,7 +13,7 @@ const LineageTree: React.FC<Props> = ({ history }) => {
   if (!history || history.length === 0) return (
       <div className="h-64 flex flex-col items-center justify-center text-slate-500 bg-slate-800/50 rounded-lg">
           <Dna size={48} className="mb-2 opacity-50" />
-          <p>Evolutionary data is accumulating...</p>
+          <p>No lineage frames loaded.</p>
       </div>
   );
 

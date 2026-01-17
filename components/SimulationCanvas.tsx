@@ -5,16 +5,27 @@ import { BOARD_WIDTH, BOARD_HEIGHT, getBlockColor } from '../constants';
 
 interface Props {
   agents: AgentState[];
-  controlledAgentId: string | null;
   onAgentClick: (id: string) => void;
   cols?: number;
+  ghostFrame?: {
+    grid: number[][];
+    currentPiece?: {
+      shape: number[][];
+      x: number;
+      y: number;
+      color: number;
+    };
+  };
+  ghostOpacity?: number;
 }
 
-const SimulationCanvas: React.FC<Props> = ({ agents, controlledAgentId, onAgentClick, cols = 4 }) => {
+const SimulationCanvas: React.FC<Props> = ({ agents, onAgentClick, cols = 4 }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   
   // Find best agent ID
-  const bestAgent = agents.reduce((prev, curr) => (prev.score > curr.score) ? prev : curr, agents[0]);
+  const bestAgent = agents.length > 0
+    ? agents.reduce((prev, curr) => (prev.score > curr.score) ? prev : curr, agents[0])
+    : null;
   const bestAgentId = bestAgent ? bestAgent.id : null;
 
   const handleCanvasClick = (e: React.MouseEvent) => {
@@ -70,21 +81,24 @@ const SimulationCanvas: React.FC<Props> = ({ agents, controlledAgentId, onAgentC
       const offsetY = GAP + row * (BOARD_PX_H + GAP);
 
       const isBest = agent.id === bestAgentId;
-      const isControlled = agent.id === controlledAgentId;
-
       // --- Draw Container Background ---
+      if (isBest) {
+        ctx.save();
+        ctx.shadowColor = 'rgba(251, 191, 36, 0.6)';
+        ctx.shadowBlur = 20;
+        ctx.fillStyle = 'rgba(251, 191, 36, 0.08)';
+        ctx.fillRect(offsetX - 6, offsetY - 18, BOARD_PX_W + 12, BOARD_PX_H + 34);
+        ctx.restore();
+      }
+
       ctx.fillStyle = '#0f172a'; // Deep slate
       ctx.fillRect(offsetX - 2, offsetY - 14, BOARD_PX_W + 4, BOARD_PX_H + 26);
       
       // --- Selection Borders ---
-      if (isControlled) {
-        ctx.strokeStyle = '#22c55e'; // Green
-        ctx.lineWidth = 2;
-        ctx.strokeRect(offsetX - 3, offsetY - 15, BOARD_PX_W + 6, BOARD_PX_H + 28);
-      } else if (isBest) {
+      if (isBest) {
         ctx.strokeStyle = '#f59e0b'; // Amber
-        ctx.lineWidth = 1;
-        ctx.strokeRect(offsetX - 3, offsetY - 15, BOARD_PX_W + 6, BOARD_PX_H + 28);
+        ctx.lineWidth = 2;
+        ctx.strokeRect(offsetX - 4, offsetY - 16, BOARD_PX_W + 8, BOARD_PX_H + 30);
       } else {
         ctx.strokeStyle = '#334155'; // Slate border
         ctx.lineWidth = 1;
@@ -140,8 +154,7 @@ const SimulationCanvas: React.FC<Props> = ({ agents, controlledAgentId, onAgentC
       ctx.font = 'bold 9px monospace';
       
       // ID Label
-      if (isControlled) ctx.fillStyle = '#22c55e';
-      else if (isBest) ctx.fillStyle = '#f59e0b';
+      if (isBest) ctx.fillStyle = '#f59e0b';
       else ctx.fillStyle = '#64748b';
       
       ctx.fillText(agent.id.slice(0,4), offsetX, offsetY - 4);
@@ -157,13 +170,13 @@ const SimulationCanvas: React.FC<Props> = ({ agents, controlledAgentId, onAgentC
           ctx.fillRect(offsetX, offsetY + BOARD_PX_H + 4, BOARD_PX_W, 2);
       } else {
           // Progress bar based on level? Just generic active indicator
-          ctx.fillStyle = isControlled ? '#22c55e' : (isBest ? '#f59e0b' : '#3b82f6');
+          ctx.fillStyle = isBest ? '#f59e0b' : '#3b82f6';
           ctx.fillRect(offsetX, offsetY + BOARD_PX_H + 4, BOARD_PX_W * (Math.min(1, agent.lines / 50)), 2);
       }
 
     });
 
-  }, [agents, cols, bestAgentId, controlledAgentId]);
+  }, [agents, cols, bestAgentId]);
 
   return (
     <div className="w-full h-full flex items-center justify-center overflow-auto p-4">

@@ -1,5 +1,6 @@
 export const BOARD_WIDTH = 10;
 export const BOARD_HEIGHT = 20;
+export const POPULATION_SIZE = 24;
 
 export const TETROMINOES = [
     [],
@@ -40,6 +41,7 @@ export const TETROMINOES = [
     ],
 ];
 
-export const GAMES_PER_GEN = 15; // Increased for more stable evaluation
+export const GAMES_PER_GEN = 1; // Single run per generation for fast evolution
 export const ELITE_COUNT = 4;      // Keep top 4 agents
 export const IMMIGRANT_COUNT = 2;   // Add 2 random agents per gen
+export const MAX_PIECES_PER_RUN = 1000; // Hard cap to force high-scoring play

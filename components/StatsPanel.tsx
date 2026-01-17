@@ -170,8 +170,8 @@ const StatsPanel: React.FC<Props> = ({ stats, fitnessHistory, topGenome }) => {
           </div>
         </div>
       ) : (
-        <div className="h-48 bg-slate-800/50 rounded-xl border border-slate-700 flex items-center justify-center text-slate-500 animate-pulse">
-           Waiting for first generation...
+        <div className="h-48 bg-slate-800/50 rounded-xl border border-slate-700 flex items-center justify-center text-slate-500">
+           No generations loaded.
         </div>
       )}
 

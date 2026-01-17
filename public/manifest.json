@@ -1,0 +1,16 @@
+{
+    "name": "TetrisML // Evolving AI",
+    "short_name": "TetrisML",
+    "description": "Real-time genetic algorithm simulation for Tetris AI.",
+    "start_url": "/",
+    "display": "standalone",
+    "background_color": "#0a0a0b",
+    "theme_color": "#0a0a0b",
+    "icons": [
+        {
+            "src": "/favicon.ico",
+            "sizes": "64x64 32x32 24x24 16x16",
+            "type": "image/x-icon"
+        }
+    ]
+}

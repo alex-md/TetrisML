@@ -1,5 +1,5 @@
 import { Genome } from '../../types';
-import { BOARD_WIDTH, BOARD_HEIGHT, TETROMINOES, GAMES_PER_GEN } from './constants';
+import { BOARD_WIDTH, BOARD_HEIGHT, TETROMINOES, GAMES_PER_GEN, MAX_PIECES_PER_RUN } from './constants';
 
 function createGrid() {
     return Array.from({ length: BOARD_HEIGHT }, () => Array(BOARD_WIDTH).fill(0));
@@ -22,6 +22,7 @@ export class TetrisGame {
     averageScore?: number;
 
     pieceIndex: number;
+    piecesSpawned: number;
     currentRunSequence: number[];
 
     currentPiece: any;
@@ -51,6 +52,7 @@ export class TetrisGame {
         this.runScores = [];
 
         this.pieceIndex = 0;
+        this.piecesSpawned = 0;
         this.currentRunSequence = runSequences[0] || [];
 
         this.actionQueue = [];
@@ -78,6 +80,7 @@ export class TetrisGame {
         this.isAlive = true;
 
         this.pieceIndex = 0;
+        this.piecesSpawned = 0;
         this.currentRunSequence = runSequences[this.runsCompleted] || runSequences[0];
 
         this.actionQueue = [];
@@ -111,6 +114,12 @@ export class TetrisGame {
 
         this.nextPiece = this.getPieceFromSequence(this.pieceIndex);
         this.pieceIndex++;
+        this.piecesSpawned++;
+
+        if (this.piecesSpawned > MAX_PIECES_PER_RUN) {
+            this.handleDeath();
+            return;
+        }
 
         this.actionQueue = [];
         this.hasPlanned = false;
@@ -122,7 +131,7 @@ export class TetrisGame {
         const adrenaline = Math.min(8, (this.level - 1) * 0.5);
         this.reactionTimer = Math.max(0, Math.floor((baseReaction - adrenaline) * (1 - speedTrait)));
 
-        this.gravityThreshold = Math.max(1, Math.floor(50 * Math.pow(0.85, this.level - 1)));
+        this.gravityThreshold = Math.max(1, Math.floor(50 * Math.pow(0.8, this.level - 1)));
         this.gravityTimer = 0;
 
         if (this.checkCollision(this.grid, this.currentPiece.shape, this.currentPiece.x, this.currentPiece.y)) {
@@ -558,10 +567,6 @@ export class TetrisGame {
         this.level = Math.floor(this.lines / 10) + 1;
         this.spawnPiece();
     }
-
-    manualMove(dx: number, dy: number) { this.move(dx, dy); }
-    manualRotate() { this.rotateCW(); }
-    manualDrop() { this.hardDrop(); }
 
     calculateMetrics(grid: number[][]) {
         let aggregateHeight = 0;

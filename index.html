@@ -4,54 +4,62 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>TetrisML // AI Trainer</title>
+    <title>TetrisML // Evolving AI Intelligence Through Genetic Algorithms</title>
+
+    <!-- SEO Meta Tags -->
+    <meta name="description"
+      content="Watch AI agents evolve in real-time. TetrisML uses genetic algorithms to train neural networks to play Tetris. Deep lineage tracking, neural mapping, and live telemetry." />
+    <meta name="keywords"
+      content="Tetris, AI, Machine Learning, Genetic Algorithm, Neural Network, Evolution, Simulation, TypeScript, React, Cloudflare" />
+    <meta name="author" content="TetrisML Team" />
+    <meta name="robots" content="index, follow" />
+    <link rel="canonical" href="https://tetrisml.pages.dev" />
+
+    <!-- Open Graph / Facebook -->
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://tetrisml.pages.dev" />
+    <meta property="og:title" content="TetrisML // Evolving AI Intelligence" />
+    <meta property="og:description"
+      content="Witness the evolution of intelligence. A real-time genetic algorithm simulation where AI agents compete and evolve to master Tetris." />
+    <meta property="og:image" content="https://tetrisml.pages.dev/og-image.png" />
+
+    <!-- Twitter -->
+    <meta property="twitter:card" content="summary_large_image" />
+    <meta property="twitter:url" content="https://tetrisml.pages.dev" />
+    <meta property="twitter:title" content="TetrisML // Evolving AI Intelligence" />
+    <meta property="twitter:description"
+      content="Witness the evolution of intelligence. A real-time genetic algorithm simulation where AI agents compete and evolve to master Tetris." />
+    <meta property="twitter:image" content="https://tetrisml.pages.dev/og-image.png" />
+
+    <!-- Favicon & PWA -->
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="manifest" href="/manifest.json" />
+    <meta name="theme-color" content="#0a0a0b" />
+
+    <!-- Structured Data -->
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "SoftwareApplication",
+        "name": "TetrisML",
+        "operatingSystem": "Web",
+        "applicationCategory": "EducationalApplication, GameApplication",
+        "description": "A real-time machine learning simulation where AI agents evolve to play Tetris using genetic algorithms.",
+        "offers": {
+          "@type": "Offer",
+          "price": "0",
+          "priceCurrency": "USD"
+        },
+        "author": {
+          "@type": "Organization",
+          "name": "TetrisML"
+        }
+      }
+    </script>
+
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
-      body {
-        background-color: #020617;
-        /* Very dark slate/black */
-        color: #e2e8f0;
-        font-family: 'Inter', system-ui, sans-serif;
-        overflow: hidden;
-      }
-
-      /* Cyberpunk Grid Background */
-      .bg-grid-pattern {
-        background-size: 40px 40px;
-        background-image:
-          linear-gradient(to right, rgba(255, 255, 255, 0.03) 1px, transparent 1px),
-          linear-gradient(to bottom, rgba(255, 255, 255, 0.03) 1px, transparent 1px);
-      }
-
-      /* Custom scrollbar */
-      ::-webkit-scrollbar {
-        width: 6px;
-        height: 6px;
-      }
-
-      ::-webkit-scrollbar-track {
-        background: rgba(15, 23, 42, 0.5);
-      }
-
-      ::-webkit-scrollbar-thumb {
-        background: #334155;
-        border-radius: 3px;
-      }
-
-      ::-webkit-scrollbar-thumb:hover {
-        background: #475569;
-      }
-
-      .glass-panel {
-        background: rgba(15, 23, 42, 0.6);
-        backdrop-filter: blur(12px);
-        -webkit-backdrop-filter: blur(12px);
-        border: 1px solid rgba(255, 255, 255, 0.08);
-      }
-
-      .neon-glow {
-        box-shadow: 0 0 10px rgba(6, 182, 212, 0.15);
-      }
+      /* Keep minimal HTML-level overrides; most styling now lives in index.css */
     </style>
     <script type="importmap">
 {
@@ -69,7 +77,22 @@
     <link rel="stylesheet" href="/index.css">
   </head>
 
-  <body class="bg-grid-pattern h-screen w-screen flex flex-col">
+  <body class="h-screen w-screen flex flex-col">
+    <noscript>
+      <div style="padding: 2rem; text-align: center; color: white; background: #0a0a0b;">
+        <h1>TetrisML // AI Intelligence Evolution</h1>
+        <p>TetrisML is an advanced genetic algorithm simulation where neural network agents evolve to master the game of
+          Tetris.</p>
+        <p>Your browser does not support JavaScript or it is disabled. Please enable JavaScript to witness the evolution
+          in real-time.</p>
+        <ul>
+          <li>Real-time Genetic Evolution</li>
+          <li>Neural Network Weight Visualization</li>
+          <li>Deep Lineage & Ancestry Tracking</li>
+          <li>Live Performance Telemetry</li>
+        </ul>
+      </div>
+    </noscript>
     <div id="root" class="h-full w-full"></div>
     <script type="module" src="/index.tsx"></script>
   </body>

@@ -46,11 +46,64 @@ export interface AgentState {
   nextPiecePreview?: number[][]; // Visual for UI
 }
 
+export interface GhostFrame {
+  grid: number[][];
+  currentPiece?: {
+    shape: number[][];
+    x: number;
+    y: number;
+    color: number;
+  };
+}
+
+export interface GhostPlayback {
+  id: string;
+  generation: number;
+  score: number;
+  frames: GhostFrame[];
+  createdAt: number;
+}
+
+export interface GenerationSnapshot {
+  generation: number;
+  agentId: string;
+  score: number;
+  lines: number;
+  grid: number[][];
+  currentPiece?: {
+    shape: number[][];
+    x: number;
+    y: number;
+    color: number;
+  };
+  timestamp: number;
+}
+
 export interface LineageNode {
   id: string;
   generation: number;
   parents: string[];
   fitness: number;
+  score: number;
+  lines: number;
+  level: number;
+  avgScore: number;
+  stress: number;
+  metrics: {
+    aggregateHeight: number;
+    completeLines: number;
+    holes: number;
+    bumpiness: number;
+    maxHeight: number;
+    rowTransitions: number;
+    colTransitions: number;
+    wells: number;
+    holeDepth: number;
+    blockades: number;
+  };
+  traits: Genome['traits'];
+  weights: Genome['weights'];
+  color: string;
   bornMethod: 'elite' | 'crossover' | 'random' | 'mutation' | 'god-child';
 }
 
@@ -81,9 +134,29 @@ export interface FullSimulationState {
   stats: SimulationStats;
   leaderboard: LeaderboardEntry[];
   lineage: LineageNode[][];
+  telemetryHistory?: TelemetryFrame[];
+  ghost?: GhostPlayback;
+  timeline?: GenerationSnapshot[];
   history: { gen: number; fitness: number }[];
   mutationRate: number;
   stagnationCount: number;
+  timestamp: number;
+}
+
+export interface TelemetryFrame {
+  generation: number;
+  avgScore: number;
+  avgLines: number;
+  avgLevel: number;
+  maxScore: number;
+  maxLines: number;
+  avgHoles: number;
+  avgBumpiness: number;
+  avgMaxHeight: number;
+  avgWells: number;
+  avgRowTransitions: number;
+  avgColTransitions: number;
+  holeDensity: number;
   timestamp: number;
 }
 
@@ -96,6 +169,8 @@ export type SimWorkerMessage =
       leaderboard: LeaderboardEntry[];
       mutationRate?: number;
       stagnationCount?: number;
+      ghost?: GhostPlayback;
+      telemetryHistory?: TelemetryFrame[];
     }
   }
   | { type: 'GEN_COMPLETE'; payload: { generation: number; bestGenome: Genome } };
@@ -105,8 +180,5 @@ export type MainMessage =
   | { type: 'PAUSE' }
   | { type: 'RESUME' }
   | { type: 'RESET' }
-  | { type: 'SET_SPEED'; payload: number } // 1 = normal, 10 = fast
   | { type: 'INJECT_CONFIG'; payload: Partial<SimulationStats> }
-  | { type: 'TAKE_CONTROL'; payload: string | null } // agentId
-  | { type: 'CONTROL_INPUT'; payload: 'LEFT' | 'RIGHT' | 'DOWN' | 'ROTATE' | 'DROP' }
   | { type: 'IMPORT_STATE'; payload: FullSimulationState };

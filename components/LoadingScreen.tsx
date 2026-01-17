@@ -58,7 +58,7 @@ const LoadingScreen: React.FC = () => {
                     animation: spin-slow 12s linear infinite;
                 }
                 .terminal-font {
-                    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+                    font-family: 'Geist Mono', monospace;
                 }
             `}} />
         </div>
