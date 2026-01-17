@@ -1,16 +1,27 @@
 
 import React, { useRef, useEffect } from 'react';
-import { AgentState } from '../types';
+import { AgentState, GhostSnapshot } from '../types';
 import { BOARD_WIDTH, BOARD_HEIGHT, getBlockColor } from '../constants';
 
 interface Props {
   agents: AgentState[];
   controlledAgentId: string | null;
   onAgentClick: (id: string) => void;
+  ghostSnapshot?: GhostSnapshot | null;
+  showGhost?: boolean;
+  showHeatmap?: boolean;
   cols?: number;
 }
 
-const SimulationCanvas: React.FC<Props> = ({ agents, controlledAgentId, onAgentClick, cols = 4 }) => {
+const SimulationCanvas: React.FC<Props> = ({
+  agents,
+  controlledAgentId,
+  onAgentClick,
+  ghostSnapshot,
+  showGhost = false,
+  showHeatmap = false,
+  cols = 4
+}) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   
   // Find best agent ID
@@ -72,6 +83,15 @@ const SimulationCanvas: React.FC<Props> = ({ agents, controlledAgentId, onAgentC
       const isBest = agent.id === bestAgentId;
       const isControlled = agent.id === controlledAgentId;
 
+      if (isBest) {
+        ctx.save();
+        ctx.shadowColor = 'rgba(251, 191, 36, 0.45)';
+        ctx.shadowBlur = 16;
+        ctx.fillStyle = 'rgba(251, 191, 36, 0.1)';
+        ctx.fillRect(offsetX - 6, offsetY - 18, BOARD_PX_W + 12, BOARD_PX_H + 34);
+        ctx.restore();
+      }
+
       // --- Draw Container Background ---
       ctx.fillStyle = '#0f172a'; // Deep slate
       ctx.fillRect(offsetX - 2, offsetY - 14, BOARD_PX_W + 4, BOARD_PX_H + 26);
@@ -94,6 +114,42 @@ const SimulationCanvas: React.FC<Props> = ({ agents, controlledAgentId, onAgentC
       // --- Draw Board Field ---
       ctx.fillStyle = '#020617'; // Almost black
       ctx.fillRect(offsetX, offsetY, BOARD_PX_W, BOARD_PX_H);
+
+      if (showGhost && ghostSnapshot) {
+        ctx.save();
+        ctx.globalAlpha = 0.2;
+        ghostSnapshot.grid.forEach((r, y) => {
+          r.forEach((c, x) => {
+            if (c !== 0) {
+              ctx.fillStyle = '#38bdf8';
+              ctx.fillRect(
+                offsetX + x * CELL_SIZE,
+                offsetY + y * CELL_SIZE,
+                CELL_SIZE - 1,
+                CELL_SIZE - 1
+              );
+            }
+          });
+        });
+        if (ghostSnapshot.currentPiece) {
+          ctx.globalAlpha = 0.25;
+          const { shape, x: px, y: py } = ghostSnapshot.currentPiece;
+          ctx.fillStyle = '#a855f7';
+          shape.forEach((r, y) => {
+            r.forEach((c, x) => {
+              if (c !== 0 && py + y >= 0) {
+                ctx.fillRect(
+                  offsetX + (px + x) * CELL_SIZE,
+                  offsetY + (py + y) * CELL_SIZE,
+                  CELL_SIZE - 1,
+                  CELL_SIZE - 1
+                );
+              }
+            });
+          });
+        }
+        ctx.restore();
+      }
 
       // Dead State Overlay
       if (!agent.isAlive) {
@@ -135,6 +191,40 @@ const SimulationCanvas: React.FC<Props> = ({ agents, controlledAgentId, onAgentC
 
       ctx.globalAlpha = 1.0;
 
+      if (showHeatmap && agent.telemetry) {
+        const expected = agent.telemetry.expectedHeatmap;
+        const actual = agent.telemetry.actualHeatmap;
+        let maxExpected = 0;
+        let maxActual = 0;
+        expected.forEach(row => row.forEach(val => { if (val > maxExpected) maxExpected = val; }));
+        actual.forEach(row => row.forEach(val => { if (val > maxActual) maxActual = val; }));
+
+        for (let y = 0; y < expected.length; y++) {
+          for (let x = 0; x < expected[y].length; x++) {
+            const expectedIntensity = maxExpected > 0 ? expected[y][x] / maxExpected : 0;
+            const actualIntensity = maxActual > 0 ? actual[y][x] / maxActual : 0;
+            if (expectedIntensity > 0) {
+              ctx.fillStyle = `rgba(56, 189, 248, ${expectedIntensity * 0.35})`;
+              ctx.fillRect(
+                offsetX + x * CELL_SIZE,
+                offsetY + y * CELL_SIZE,
+                CELL_SIZE - 1,
+                CELL_SIZE - 1
+              );
+            }
+            if (actualIntensity > 0) {
+              ctx.fillStyle = `rgba(248, 113, 113, ${actualIntensity * 0.35})`;
+              ctx.fillRect(
+                offsetX + x * CELL_SIZE,
+                offsetY + y * CELL_SIZE,
+                CELL_SIZE - 1,
+                CELL_SIZE - 1
+              );
+            }
+          }
+        }
+      }
+
       // --- Meta Data Text ---
       ctx.textAlign = 'left';
       ctx.font = 'bold 9px monospace';
@@ -163,7 +253,7 @@ const SimulationCanvas: React.FC<Props> = ({ agents, controlledAgentId, onAgentC
 
     });
 
-  }, [agents, cols, bestAgentId, controlledAgentId]);
+  }, [agents, cols, bestAgentId, controlledAgentId, ghostSnapshot, showGhost, showHeatmap]);
 
   return (
     <div className="w-full h-full flex items-center justify-center overflow-auto p-4">

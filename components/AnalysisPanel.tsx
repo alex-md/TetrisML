@@ -6,8 +6,7 @@ import {
 } from 'recharts';
 import { SimulationStats, Genome } from '../types';
 import {
-  Brain, Activity, Dna, Target, Shield, Layout,
-  Maximize2, Minimize2, AlignCenter, ArrowDownToLine, Eraser, Grip,
+  Brain, Activity, Dna,
   Microscope, Globe
 } from 'lucide-react';
 
@@ -30,24 +29,42 @@ const AnalysisPanel: React.FC<Props> = ({ stats, fitnessHistory, selectedGenome,
     { subject: 'Calm', A: (1 - activeGenome.traits.anxiety) * 100, fullMark: 100 },
   ] : [];
 
-  const weightGroups = activeGenome ? [
-    {
-      title: "Mechanics",
-      items: [
-        { key: 'lines', icon: Target, label: 'Lines', raw: activeGenome.weights.lines, color: 'bg-yellow-500' },
-        { key: 'height', icon: Shield, label: 'Height', raw: Math.abs(activeGenome.weights.height), color: 'bg-emerald-500' },
-        { key: 'holes', icon: Layout, label: 'Holes', raw: Math.abs(activeGenome.weights.holes), color: 'bg-indigo-500' },
-      ]
-    },
-    {
-      title: "Structure",
-      items: [
-        { key: 'wells', icon: ArrowDownToLine, label: 'Wells', raw: Math.abs(activeGenome.weights.wells), color: 'bg-red-500' },
-        { key: 'rowTrans', icon: AlignCenter, label: 'Row Un', raw: Math.abs(activeGenome.weights.rowTransitions), color: 'bg-blue-400' },
-        { key: 'eroded', icon: Eraser, label: 'Burn', raw: activeGenome.weights.erodedCells, color: 'bg-purple-500' },
-      ]
-    }
+  const neuralNodes = activeGenome ? [
+    { key: 'lines', label: 'Lines', weight: activeGenome.weights.lines, x: 18, y: 28 },
+    { key: 'height', label: 'Height', weight: activeGenome.weights.height, x: 46, y: 16 },
+    { key: 'holes', label: 'Holes', weight: activeGenome.weights.holes, x: 74, y: 30 },
+    { key: 'wells', label: 'Wells', weight: activeGenome.weights.wells, x: 24, y: 68 },
+    { key: 'rowTransitions', label: 'Row Un', weight: activeGenome.weights.rowTransitions, x: 50, y: 54 },
+    { key: 'erodedCells', label: 'Burn', weight: activeGenome.weights.erodedCells, x: 76, y: 70 },
+    { key: 'centerDev', label: 'Center', weight: activeGenome.weights.centerDev, x: 52, y: 86 },
   ] : [];
+  const neuralLinks = [
+    [0, 1],
+    [1, 2],
+    [0, 4],
+    [1, 4],
+    [2, 4],
+    [3, 4],
+    [4, 5],
+    [4, 6],
+  ];
+
+  const getPersonality = (genome: Genome) => {
+    const { weights, traits } = genome;
+    const descriptors = [];
+    if (weights.lines > 0.8) descriptors.push({ title: 'The Perfectionist', note: 'Obsessed with clean clears and elegant stacks.' });
+    if (weights.holes < -0.9 || weights.rowTransitions < -0.8) descriptors.push({ title: 'The Sculptor', note: 'Carves away chaos, avoids messy wells.' });
+    if (weights.wells < -0.8) descriptors.push({ title: 'The Risk Taker', note: 'Dives into wells for bold setups.' });
+    if (weights.centerDev < -0.2) descriptors.push({ title: 'The Balancer', note: 'Keeps play centered and measured.' });
+    if (traits.foresight > 0.75) descriptors.push({ title: 'The Strategist', note: 'Plans two steps ahead with patience.' });
+    if (traits.anxiety > 0.7) descriptors.push({ title: 'The Sprinter', note: 'Prefers fast, decisive drops under pressure.' });
+    if (descriptors.length === 0) {
+      descriptors.push({ title: 'The Generalist', note: 'Adapts to the board without a fixed obsession.' });
+    }
+    return descriptors[0];
+  };
+
+  const personality = activeGenome ? getPersonality(activeGenome) : null;
 
   return (
     <div className="flex flex-col h-full space-y-4">
@@ -118,29 +135,48 @@ const AnalysisPanel: React.FC<Props> = ({ stats, fitnessHistory, selectedGenome,
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-x-4 gap-y-6">
-            {/* Left: Weights */}
-            <div className="space-y-3">
-              {weightGroups.map((group) => (
-                <div key={group.title} className="space-y-1.5">
-                  <div className="text-[9px] text-slate-600 uppercase tracking-widest">{group.title}</div>
-                  {group.items.map((t) => (
-                    <div key={t.key}>
-                      <div className="flex justify-between text-[9px] text-slate-400 mb-0.5">
-                        <span>{t.label}</span>
-                        <span className="font-mono">{t.raw.toFixed(1)}</span>
-                      </div>
-                      <div className="h-1 bg-slate-800 rounded-full overflow-hidden">
-                        <div className={`h-full ${t.color}`} style={{ width: `${Math.min(100, Math.abs(t.raw) * 100)}%` }} />
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              ))}
+          <div className="grid grid-cols-1 gap-4">
+            <div className="neural-map">
+              <svg className="neural-links" viewBox="0 0 100 100" preserveAspectRatio="none">
+                {neuralLinks.map(([from, to]) => {
+                  const start = neuralNodes[from];
+                  const end = neuralNodes[to];
+                  if (!start || !end) return null;
+                  return (
+                    <line
+                      key={`${start.key}-${end.key}`}
+                      x1={start.x}
+                      y1={start.y}
+                      x2={end.x}
+                      y2={end.y}
+                      stroke="rgba(34, 211, 238, 0.35)"
+                      strokeWidth="0.6"
+                    />
+                  );
+                })}
+              </svg>
+              {neuralNodes.map((node, index) => {
+                const intensity = Math.min(1, Math.abs(node.weight) / 3);
+                return (
+                  <div
+                    key={node.key}
+                    className="neural-node"
+                    style={{
+                      left: `${node.x}%`,
+                      top: `${node.y}%`,
+                      ['--intensity' as string]: intensity,
+                      ['--pulse-delay' as string]: `${index * 0.2}s`,
+                    }}
+                    title={`${node.label}: ${node.weight.toFixed(2)}`}
+                  >
+                    <strong>{node.weight.toFixed(1)}</strong>
+                    <span>{node.label}</span>
+                  </div>
+                );
+              })}
             </div>
 
-            {/* Right: Radar */}
-            <div className="h-full min-h-[120px] relative">
+            <div className="h-40 relative">
               <div className="absolute inset-0 flex items-center justify-center pointer-events-none opacity-20">
                 <Dna size={80} className="text-cyan-500 animate-pulse-slow" />
               </div>
@@ -152,6 +188,16 @@ const AnalysisPanel: React.FC<Props> = ({ stats, fitnessHistory, selectedGenome,
                 </RadarChart>
               </ResponsiveContainer>
             </div>
+          </div>
+
+          <div className="mt-4 rounded border border-slate-800 bg-slate-950 p-3 text-[10px]">
+            <div className="text-[9px] uppercase tracking-widest text-slate-500">Competitor Bio</div>
+            {personality && (
+              <>
+                <div className="mt-2 text-cyan-300 font-bold">{personality.title}</div>
+                <div className="mt-1 text-slate-400">{personality.note}</div>
+              </>
+            )}
           </div>
 
           <div className="mt-4 pt-3 border-t border-slate-800 grid grid-cols-2 gap-2 text-[10px]">
