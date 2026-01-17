@@ -1,4 +1,4 @@
-# EVO_TETRIS: Genetic AI Aquarium
+# TetrisML: Evolutionary ML AI visualizer
 
 A web-based "aquarium" for Tetris AI, allowing real-time observation of an evolving population of agents. Featuring a Cloudflare Workers backend for infinite persistence.
 
