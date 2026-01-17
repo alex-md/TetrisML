@@ -42,6 +42,6 @@ export const TETROMINOES = [
 ];
 
 export const GAMES_PER_GEN = 1; // Single run per generation for fast evolution
-export const ELITE_COUNT = 4;      // Keep top 4 agents
-export const IMMIGRANT_COUNT = 2;   // Add 2 random agents per gen
-export const MAX_PIECES_PER_RUN = 1000; // Hard cap to force high-scoring play
+export const ELITE_COUNT = 6;      // Keep top 6 agents
+export const IMMIGRANT_COUNT = 4;   // Add 4 random agents per gen
+export const MAX_PIECES_PER_RUN = 100000; // Hard cap to force high-scoring play
