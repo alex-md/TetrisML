@@ -20,6 +20,8 @@ export class TetrisGame {
     runsCompleted: number;
     runScores: number[];
     averageScore?: number;
+    piecesPlaced: number;
+    lastLinesCleared: number;
 
     pieceIndex: number;
     currentRunSequence: number[];
@@ -30,6 +32,9 @@ export class TetrisGame {
     actionQueue: string[];
     hasPlanned: boolean;
     reactionTimer: number;
+    expectedHeatmap: number[][];
+    actualHeatmap: number[][];
+    expectedCells: { x: number; y: number }[];
 
     gravityTimer: number;
     gravityThreshold: number;
@@ -49,6 +54,8 @@ export class TetrisGame {
 
         this.runsCompleted = 0;
         this.runScores = [];
+        this.piecesPlaced = 0;
+        this.lastLinesCleared = 0;
 
         this.pieceIndex = 0;
         this.currentRunSequence = runSequences[0] || [];
@@ -64,6 +71,10 @@ export class TetrisGame {
         this.lockTimer = 0;
         this.lockResets = 0;
         this.maxLockResets = 15;
+
+        this.expectedHeatmap = createGrid();
+        this.actualHeatmap = createGrid();
+        this.expectedCells = [];
 
         this.nextPiece = this.getPieceFromSequence(0);
         this.pieceIndex++;
@@ -87,6 +98,11 @@ export class TetrisGame {
         this.gravityThreshold = 50;
         this.lockTimer = 0;
         this.lockResets = 0;
+        this.piecesPlaced = 0;
+        this.lastLinesCleared = 0;
+        this.expectedHeatmap = createGrid();
+        this.actualHeatmap = createGrid();
+        this.expectedCells = [];
 
         this.nextPiece = this.getPieceFromSequence(0);
         this.pieceIndex++;
@@ -272,6 +288,13 @@ export class TetrisGame {
         }
 
         if (bestTarget) {
+            this.expectedCells = this.getCellsForPlacement(bestTarget.shape, bestTarget.x, bestTarget.y);
+            this.applyHeatmapDecay();
+            this.expectedCells.forEach(cell => {
+                if (cell.y >= 0 && cell.y < BOARD_HEIGHT && cell.x >= 0 && cell.x < BOARD_WIDTH) {
+                    this.expectedHeatmap[cell.y][cell.x] = Math.min(1, this.expectedHeatmap[cell.y][cell.x] + 0.4);
+                }
+            });
             this.generatePath(bestTarget);
         }
     }
@@ -519,6 +542,7 @@ export class TetrisGame {
 
     lockPiece() {
         const shape = this.currentPiece.shape;
+        const placedCells = this.getCellsForPlacement(shape, this.currentPiece.x, this.currentPiece.y);
         for (let y = 0; y < shape.length; y++) {
             for (let x = 0; x < shape[y].length; x++) {
                 if (shape[y][x] !== 0) {
@@ -531,6 +555,13 @@ export class TetrisGame {
             }
         }
 
+        this.applyHeatmapDecay();
+        placedCells.forEach(cell => {
+            if (cell.y >= 0 && cell.y < BOARD_HEIGHT && cell.x >= 0 && cell.x < BOARD_WIDTH) {
+                this.actualHeatmap[cell.y][cell.x] = Math.min(1, this.actualHeatmap[cell.y][cell.x] + 0.5);
+            }
+        });
+
         let linesCleared = 0;
         for (let y = BOARD_HEIGHT - 1; y >= 0; y--) {
             if (this.grid[y].every(cell => cell !== 0)) {
@@ -542,6 +573,8 @@ export class TetrisGame {
         }
 
         this.lines += linesCleared;
+        this.lastLinesCleared = linesCleared;
+        this.piecesPlaced += 1;
 
         const levelMult = Math.max(1, this.level);
         switch (linesCleared) {
@@ -644,5 +677,27 @@ export class TetrisGame {
             aggregateHeight, completeLines, holes, bumpiness,
             maxHeight, rowTransitions, colTransitions, wells, holeDepth, blockades
         };
+    }
+
+    getCellsForPlacement(shape: number[][], offsetX: number, offsetY: number) {
+        const cells: { x: number; y: number }[] = [];
+        for (let y = 0; y < shape.length; y++) {
+            for (let x = 0; x < shape[y].length; x++) {
+                if (shape[y][x] !== 0) {
+                    cells.push({ x: offsetX + x, y: offsetY + y });
+                }
+            }
+        }
+        return cells;
+    }
+
+    applyHeatmapDecay() {
+        const decay = 0.92;
+        for (let y = 0; y < BOARD_HEIGHT; y++) {
+            for (let x = 0; x < BOARD_WIDTH; x++) {
+                this.expectedHeatmap[y][x] *= decay;
+                this.actualHeatmap[y][x] *= decay;
+            }
+        }
     }
 }

@@ -36,6 +36,7 @@ export interface AgentState {
   lines: number;
   level: number;
   isAlive: boolean;
+  piecesPlaced?: number;
   genome: Genome;
   currentPiece?: {
     shape: number[][];
@@ -44,6 +45,10 @@ export interface AgentState {
     color: number;
   };
   nextPiecePreview?: number[][]; // Visual for UI
+  telemetry?: {
+    expectedHeatmap: number[][];
+    actualHeatmap: number[][];
+  };
 }
 
 export interface LineageNode {
@@ -76,6 +81,25 @@ export interface SimulationStats {
   stage: 'Training' | 'Evolving' | 'Paused' | 'Mass Extinction' | 'Stable Evolution';
 }
 
+export interface GhostSnapshot {
+  grid: number[][];
+  currentPiece?: {
+    shape: number[][];
+    x: number;
+    y: number;
+    color: number;
+  };
+  score: number;
+  generation: number;
+  id: string;
+}
+
+export interface TimelineEvent {
+  generation: number;
+  firstTetrisAt?: number;
+  firstTetrisBy?: string;
+}
+
 export interface FullSimulationState {
   population: Genome[];
   stats: SimulationStats;
@@ -96,6 +120,8 @@ export type SimWorkerMessage =
       leaderboard: LeaderboardEntry[];
       mutationRate?: number;
       stagnationCount?: number;
+      bestEverGhost?: GhostSnapshot | null;
+      timeline?: TimelineEvent[];
     }
   }
   | { type: 'GEN_COMPLETE'; payload: { generation: number; bestGenome: Genome } };
@@ -109,4 +135,6 @@ export type MainMessage =
   | { type: 'INJECT_CONFIG'; payload: Partial<SimulationStats> }
   | { type: 'TAKE_CONTROL'; payload: string | null } // agentId
   | { type: 'CONTROL_INPUT'; payload: 'LEFT' | 'RIGHT' | 'DOWN' | 'ROTATE' | 'DROP' }
+  | { type: 'KILL_AGENT'; payload: string }
+  | { type: 'FORCE_MUTATE'; payload: string }
   | { type: 'IMPORT_STATE'; payload: FullSimulationState };

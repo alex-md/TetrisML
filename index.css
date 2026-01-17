@@ -1,2 +1,190 @@
 /* Main CSS file for TetrisML */
 /* Tailwind is used via CDN in index.html, so this is currently empty but prevents build warnings. */
+
+:root {
+  color-scheme: dark;
+}
+
+.animated-grid {
+  position: relative;
+}
+
+.animated-grid::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-image:
+    radial-gradient(circle at 10% 10%, rgba(56, 189, 248, 0.15), transparent 45%),
+    radial-gradient(circle at 90% 20%, rgba(168, 85, 247, 0.12), transparent 40%),
+    radial-gradient(circle at 50% 80%, rgba(34, 211, 238, 0.12), transparent 50%);
+  opacity: 0.6;
+  pointer-events: none;
+  animation: auroraShift 18s ease-in-out infinite;
+}
+
+.bg-grid-pattern {
+  animation: gridDrift 12s linear infinite;
+}
+
+.glass-panel {
+  background: rgba(9, 16, 28, 0.65);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 0 0 30px rgba(15, 23, 42, 0.35);
+}
+
+.neon-glow {
+  box-shadow: 0 0 20px rgba(6, 182, 212, 0.25);
+}
+
+.scanlines-overlay {
+  position: absolute;
+  inset: 0;
+  background: repeating-linear-gradient(
+    to bottom,
+    rgba(148, 163, 184, 0.08),
+    rgba(148, 163, 184, 0.08) 1px,
+    transparent 1px,
+    transparent 6px
+  );
+  mix-blend-mode: screen;
+  opacity: 0.25;
+  pointer-events: none;
+}
+
+.scan-sweep {
+  position: absolute;
+  inset: -60% 0 0 0;
+  background: linear-gradient(
+    to bottom,
+    transparent 0%,
+    rgba(34, 211, 238, 0.12) 50%,
+    transparent 100%
+  );
+  animation: scanSweep 6s linear infinite;
+  pointer-events: none;
+}
+
+.generation-pulse {
+  animation: generationPulse 0.6s ease-out;
+}
+
+.neural-map {
+  position: relative;
+  min-height: 240px;
+  background: radial-gradient(circle at top, rgba(15, 23, 42, 0.85), rgba(2, 6, 23, 0.9));
+  border-radius: 14px;
+  border: 1px solid rgba(148, 163, 184, 0.15);
+  overflow: hidden;
+  transform-style: preserve-3d;
+  perspective: 800px;
+}
+
+.neural-map::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(circle at 50% 30%, rgba(34, 211, 238, 0.08), transparent 60%);
+  pointer-events: none;
+}
+
+.neural-node {
+  position: absolute;
+  width: calc(14px + 10px * var(--intensity, 0.5));
+  height: calc(14px + 10px * var(--intensity, 0.5));
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.9);
+  border: 1px solid rgba(148, 163, 184, 0.4);
+  box-shadow:
+    0 0 12px rgba(34, 211, 238, calc(0.2 + var(--intensity, 0.5) * 0.5)),
+    inset 0 0 8px rgba(15, 23, 42, 0.8);
+  transform: translate(-50%, -50%) translateZ(calc(20px * var(--intensity, 0.5)));
+  animation: neuralPulse 2.6s ease-in-out infinite;
+  animation-delay: var(--pulse-delay, 0s);
+}
+
+.neural-node span {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 9px;
+  color: rgba(148, 163, 184, 0.9);
+  white-space: nowrap;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+}
+
+.neural-node strong {
+  position: absolute;
+  top: -12px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 10px;
+  color: rgba(34, 211, 238, 0.9);
+  font-family: ui-monospace, SFMono-Regular, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+
+.neural-links {
+  position: absolute;
+  inset: 0;
+  opacity: 0.5;
+}
+
+@keyframes gridDrift {
+  from {
+    background-position: 0 0;
+  }
+  to {
+    background-position: 120px 120px;
+  }
+}
+
+@keyframes auroraShift {
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0);
+    opacity: 0.45;
+  }
+  50% {
+    transform: translate3d(-20px, 30px, 0);
+    opacity: 0.7;
+  }
+}
+
+@keyframes scanSweep {
+  0% {
+    transform: translateY(-40%);
+    opacity: 0;
+  }
+  20% {
+    opacity: 0.4;
+  }
+  100% {
+    transform: translateY(160%);
+    opacity: 0;
+  }
+}
+
+@keyframes generationPulse {
+  0% {
+    transform: translate3d(0, 0, 0);
+  }
+  30% {
+    transform: translate3d(0, -2px, 0);
+  }
+  100% {
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+@keyframes neuralPulse {
+  0%,
+  100% {
+    transform: translate(-50%, -50%) scale(1) translateZ(calc(20px * var(--intensity, 0.5)));
+  }
+  50% {
+    transform: translate(-50%, -50%) scale(1.12) translateZ(calc(30px * var(--intensity, 0.5)));
+  }
+}

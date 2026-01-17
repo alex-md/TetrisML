@@ -1,7 +1,7 @@
 import { TetrisGame } from './TetrisGame';
 import * as GA from './EvolutionEngine';
 import { GAMES_PER_GEN, BOARD_WIDTH } from './constants';
-import { Genome, MainMessage, SimWorkerMessage, AgentState, LeaderboardEntry, LineageNode, FullSimulationState } from '../../types';
+import { Genome, MainMessage, SimWorkerMessage, AgentState, LeaderboardEntry, LineageNode, FullSimulationState, GhostSnapshot, TimelineEvent } from '../../types';
 
 let population: TetrisGame[] = [];
 let generation = 1;
@@ -18,6 +18,19 @@ let fitnessHistory: number[] = [];
 let stagnationCount = 0;
 let runSequences = GA.generateRunSequences();
 let bestEverFitness = 0;
+let bestEverGhost: GhostSnapshot | null = null;
+let timeline: TimelineEvent[] = [];
+
+const cloneGrid = (grid: number[][]) => grid.map(row => [...row]);
+const clonePiece = (piece: GhostSnapshot['currentPiece']) => {
+    if (!piece) return undefined;
+    return {
+        shape: piece.shape.map(row => [...row]),
+        x: piece.x,
+        y: piece.y,
+        color: piece.color
+    };
+};
 
 function sendUpdate() {
     let sumHeightW = 0;
@@ -34,14 +47,32 @@ function sendUpdate() {
         lines: p.lines,
         level: p.level,
         isAlive: p.isAlive,
+        piecesPlaced: p.piecesPlaced,
         genome: p.genome,
         currentPiece: p.currentPiece,
-        nextPiecePreview: p.nextPiece.shape
+        nextPiecePreview: p.nextPiece.shape,
+        telemetry: {
+            expectedHeatmap: p.expectedHeatmap,
+            actualHeatmap: p.actualHeatmap
+        }
     }));
 
     const allFitness = population.map(p => p.averageScore || p.score);
     const maxFitness = Math.max(...allFitness);
-    if (maxFitness > bestEverFitness) bestEverFitness = maxFitness;
+    if (maxFitness > bestEverFitness) {
+        bestEverFitness = maxFitness;
+        const bestIndex = allFitness.indexOf(maxFitness);
+        const bestAgent = population[bestIndex];
+        if (bestAgent) {
+            bestEverGhost = {
+                id: bestAgent.genome.id,
+                generation: bestAgent.genome.generation,
+                score: bestAgent.score,
+                grid: cloneGrid(bestAgent.grid),
+                currentPiece: clonePiece(bestAgent.currentPiece)
+            };
+        }
+    }
 
     const stats = {
         generation,
@@ -63,7 +94,9 @@ function sendUpdate() {
             lineage: lineageHistory,
             leaderboard,
             mutationRate,
-            stagnationCount
+            stagnationCount,
+            bestEverGhost,
+            timeline
         }
     });
 }
@@ -73,6 +106,7 @@ function initPopulation() {
     lineageHistory = [];
     leaderboard = [];
     runSequences = GA.generateRunSequences();
+    timeline = [];
 
     for (let i = 0; i < populationSize; i++) {
         const genome = GA.createRandomGenome(1);
@@ -202,6 +236,9 @@ function evolve() {
 
     population = newPop;
     generation++;
+    population.forEach(agent => {
+        agent.lastLinesCleared = 0;
+    });
     recordLineage();
 }
 
@@ -214,12 +251,21 @@ setInterval(() => {
 
     for (let k = 0; k < iterations; k++) {
         let allDead = true;
+        let tetrisEvent: TimelineEvent | null = null;
         for (let agent of population) {
             if (agent.isAlive) {
                 allDead = false;
                 agent.tick();
                 if (agent.genome.id !== controlledAgentId && Math.random() < 0.0001 * agent.level) {
                     agent.addGarbageLine();
+                }
+                if (agent.lastLinesCleared === 4 && !timeline.find(e => e.generation === generation && e.firstTetrisAt)) {
+                    tetrisEvent = {
+                        generation,
+                        firstTetrisAt: Date.now(),
+                        firstTetrisBy: agent.genome.id
+                    };
+                    agent.lastLinesCleared = 0;
                 }
             } else if (agent.runsCompleted < GAMES_PER_GEN) {
                 // If a run finished but still have runs left in the gen
@@ -237,6 +283,9 @@ setInterval(() => {
         if (allDead) {
             evolve();
             break;
+        }
+        if (tetrisEvent) {
+            timeline = [...timeline.filter(e => e.generation !== generation), tetrisEvent].sort((a, b) => a.generation - b.generation);
         }
     }
 
@@ -287,9 +336,31 @@ self.onmessage = (e: MessageEvent<MainMessage>) => {
         stagnationCount = state.stagnationCount || 0;
         leaderboard = state.leaderboard || [];
         lineageHistory = state.lineage || [];
+        timeline = [];
 
         console.log(`[Worker] Deep State Restored. Gen: ${generation}, Agents: ${populationSize}, Mutation: ${mutationRate.toFixed(3)}`);
         sendUpdate();
+    }
+
+    if (type === 'KILL_AGENT') {
+        const agent = population.find(p => p.genome.id === payload);
+        if (agent) {
+            agent.isAlive = false;
+        }
+    }
+
+    if (type === 'FORCE_MUTATE') {
+        const agentIndex = population.findIndex(p => p.genome.id === payload);
+        if (agentIndex !== -1) {
+            const agent = population[agentIndex];
+            const mutatedGenome = JSON.parse(JSON.stringify(agent.genome)) as Genome;
+            mutatedGenome.id = GA.generateId();
+            mutatedGenome.generation = generation;
+            mutatedGenome.parents = [agent.genome.id];
+            mutatedGenome.bornMethod = 'god-child';
+            GA.mutate(mutatedGenome, Math.max(0.2, mutationRate * 2));
+            population[agentIndex] = new TetrisGame(mutatedGenome, runSequences);
+        }
     }
 };
 
