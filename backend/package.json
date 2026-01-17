@@ -13,6 +13,6 @@
   "author": "",
   "license": "ISC",
   "devDependencies": {
-    "wrangler": "^3.102.0"
+    "wrangler": "^4.59.2"
   }
 }
