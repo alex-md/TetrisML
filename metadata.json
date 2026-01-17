@@ -1,0 +1,5 @@
+{
+  "name": "TetrisML: Genetic Algorithm Trainer",
+  "description": "A real-time evolutionary simulation where AI agents learn to play Tetris through natural selection. Watch generations evolve, mutate, and compete.",
+  "requestFramePermissions": []
+}
