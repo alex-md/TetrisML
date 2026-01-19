@@ -464,14 +464,32 @@ function evolve() {
     fitnessHistory.push(avgFitness);
     if (fitnessHistory.length > 8) fitnessHistory.shift();
 
+    // 1. Learning Rate Scheduler - Smaller steps as agents mature
+    const minStepSize = 0.08;
+    stepSize = Math.max(minStepSize, 0.35 * Math.pow(0.992, generation));
+
+    // 2. Sigma Annealing (Noise floor lowers over time to allow fine-tuning)
+    const annealingTarget = 0.05;
+    const sigmaFloor = Math.max(annealingTarget, 0.25 * Math.pow(0.985, generation / 5));
+
     if (fitnessHistory.length >= 5) {
         const trend = fitnessHistory[fitnessHistory.length - 1] - fitnessHistory[0];
         if (trend <= 0) stagnationCount++;
         else stagnationCount = 0;
     }
 
-    if (stagnationCount > 2) sigma = Math.min(0.45, sigma + 0.03);
-    else sigma = Math.max(0.18, sigma - 0.01);
+    // 3. Refined Stagnation Logic (Cooling vs. Wandering)
+    if (stagnationCount > 8) {
+        // Severe stagnation - escape local minima with high noise (Wandering)
+        sigma = Math.min(0.6, sigma + 0.15);
+        stagnationCount = 0;
+    } else if (stagnationCount > 3) {
+        // Persistent stagnation - try reducing noise to fine-tune (Cooling)
+        sigma = Math.max(sigmaFloor, sigma - 0.05);
+    } else {
+        // Healthy growth or minor stagnation - gently anneal
+        sigma = Math.max(sigmaFloor, sigma - 0.01);
+    }
 
     const noveltySorted = signatures
         .map((sig, i) => ({ sig, novelty: novelties[i] }))
