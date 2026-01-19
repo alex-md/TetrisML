@@ -14,22 +14,28 @@ type Archetype = {
 };
 
 const getArchetype = (agent: AgentState): Archetype => {
-  const { weights, traits } = agent.genome;
-  if (weights.lines > 0.5 && weights.holes < -0.4) {
+  const signals = agent.genome.summary.sensitivities;
+  const linesBias = signals.linesCleared ?? 0;
+  const holesBias = signals.holes ?? 0;
+  const bumpBias = signals.bumpiness ?? 0;
+  const wellBias = signals.wells ?? 0;
+  const centerBias = signals.centerDev ?? 0;
+
+  if (linesBias > 0.35 && holesBias < -0.35) {
     return {
       name: 'The Perfectionist',
       description: 'Obsessed with clean clears and immaculate stacks. Rarely tolerates holes.',
       tone: 'text-cyan-300'
     };
   }
-  if (traits.anxiety > 0.6 && weights.landingHeight < -0.2) {
+  if (wellBias > 0.25 && linesBias > 0.2) {
     return {
-      name: 'The Risk Taker',
-      description: 'Plays high and fast, embracing volatility to chase momentum.',
-      tone: 'text-rose-300'
+      name: 'The Tetris Hunter',
+      description: 'Carves wells and stores power clears, hunting for four-line strikes.',
+      tone: 'text-purple-300'
     };
   }
-  if (weights.centerDev < -0.3 && weights.bumpiness < -0.3) {
+  if (centerBias < -0.2 && bumpBias < -0.3) {
     return {
       name: 'The Architect',
       description: 'Builds centered, symmetrical stacks to keep options open.',

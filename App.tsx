@@ -263,8 +263,8 @@ const App: React.FC = () => {
                     population: currentAgents.map(a => ({
                         id: a.genome.id,
                         generation: a.genome.generation || currentStats.generation,
-                        weights: a.genome.weights,
-                        traits: a.genome.traits,
+                        policy: a.genome.policy,
+                        summary: a.genome.summary,
                         color: a.genome.color,
                         bornMethod: a.genome.bornMethod,
                         parents: a.genome.parents

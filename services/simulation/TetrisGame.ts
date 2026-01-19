@@ -1,5 +1,6 @@
 import { Genome } from '../../types';
-import { BOARD_WIDTH, BOARD_HEIGHT, TETROMINOES, GAMES_PER_GEN, MAX_PIECES_PER_RUN } from './constants';
+import { BOARD_WIDTH, BOARD_HEIGHT, TETROMINOES, MAX_PIECES_PER_RUN } from './constants';
+import { forwardPolicy, POLICY_INPUT_SIZE } from './policy';
 
 function createGrid() {
     return Array.from({ length: BOARD_HEIGHT }, () => Array(BOARD_WIDTH).fill(0));
@@ -20,6 +21,9 @@ export class TetrisGame {
     runsCompleted: number;
     runScores: number[];
     averageScore?: number;
+    tetrisCount: number;
+    behaviorSamples: number;
+    behaviorSums: { holes: number; bumpiness: number; maxHeight: number; wells: number; };
 
     pieceIndex: number;
     piecesSpawned: number;
@@ -34,13 +38,15 @@ export class TetrisGame {
 
     gravityTimer: number;
     gravityThreshold: number;
+    gravityScale: number;
+    maxPiecesPerRun: number;
 
     lockDelay: number;
     lockTimer: number;
     lockResets: number;
     maxLockResets: number;
 
-    constructor(genome: Genome, runSequences: number[][]) {
+    constructor(genome: Genome, runSequences: number[][], options?: { gravityScale?: number; maxPieces?: number; }) {
         this.genome = genome;
         this.grid = createGrid();
         this.score = 0;
@@ -50,6 +56,9 @@ export class TetrisGame {
 
         this.runsCompleted = 0;
         this.runScores = [];
+        this.tetrisCount = 0;
+        this.behaviorSamples = 0;
+        this.behaviorSums = { holes: 0, bumpiness: 0, maxHeight: 0, wells: 0 };
 
         this.pieceIndex = 0;
         this.piecesSpawned = 0;
@@ -61,6 +70,8 @@ export class TetrisGame {
 
         this.gravityTimer = 0;
         this.gravityThreshold = 50;
+        this.gravityScale = options?.gravityScale ?? 1;
+        this.maxPiecesPerRun = options?.maxPieces ?? MAX_PIECES_PER_RUN;
 
         this.lockDelay = 30;
         this.lockTimer = 0;
@@ -90,6 +101,9 @@ export class TetrisGame {
         this.gravityThreshold = 50;
         this.lockTimer = 0;
         this.lockResets = 0;
+        this.tetrisCount = 0;
+        this.behaviorSamples = 0;
+        this.behaviorSums = { holes: 0, bumpiness: 0, maxHeight: 0, wells: 0 };
 
         this.nextPiece = this.getPieceFromSequence(0);
         this.pieceIndex++;
@@ -116,7 +130,7 @@ export class TetrisGame {
         this.pieceIndex++;
         this.piecesSpawned++;
 
-        if (this.piecesSpawned > MAX_PIECES_PER_RUN) {
+        if (this.piecesSpawned > this.maxPiecesPerRun) {
             this.handleDeath();
             return;
         }
@@ -126,12 +140,8 @@ export class TetrisGame {
         this.lockTimer = 0;
         this.lockResets = 0;
 
-        const speedTrait = this.genome.traits ? this.genome.traits.reactionSpeed : 0.5;
-        const baseReaction = 12;
-        const adrenaline = Math.min(8, (this.level - 1) * 0.5);
-        this.reactionTimer = Math.max(0, Math.floor((baseReaction - adrenaline) * (1 - speedTrait)));
-
-        this.gravityThreshold = Math.max(1, Math.floor(50 * Math.pow(0.8, this.level - 1)));
+        this.reactionTimer = 0;
+        this.gravityThreshold = Math.max(1, Math.floor(50 * Math.pow(0.8, this.level - 1) * this.gravityScale));
         this.gravityTimer = 0;
 
         if (this.checkCollision(this.grid, this.currentPiece.shape, this.currentPiece.x, this.currentPiece.y)) {
@@ -205,9 +215,7 @@ export class TetrisGame {
         const possibleMoves = this.getPossibleMoves(this.currentPiece, this.grid);
         if (possibleMoves.length === 0) return;
 
-        const speedTrait = this.genome.traits ? this.genome.traits.reactionSpeed : 0.5;
-        const rawBudget = this.gravityThreshold + (speedTrait * 30);
-        const mobilityBudget = Math.max(5, rawBudget);
+        const mobilityBudget = Math.max(6, this.gravityThreshold + 12);
 
         const reachableMoves = possibleMoves.filter(m => {
             const rotCost = m.rot * 1.5;
@@ -218,62 +226,28 @@ export class TetrisGame {
 
         const candidatesToEval = reachableMoves.length > 0 ? reachableMoves : possibleMoves;
 
-        const foresightTrait = this.genome.traits ? this.genome.traits.foresight : 0.5;
-        const shouldUseForesight = foresightTrait > 0.5;
-
         let candidates = candidatesToEval.map(move => {
             const simState = this.getSimulatedGrid(this.grid, move);
             const metrics = this.calculateMetrics(simState.grid);
-            const score = this.getScore(metrics, {
+            const featureVector = this.buildFeatureVector(metrics, {
                 linesCleared: simState.linesCleared,
                 landingHeight: simState.landingHeight,
                 erodedCells: simState.erodedCells,
                 centerDev: Math.abs((move.x + move.shape[0].length / 2) - (BOARD_WIDTH / 2))
             });
+            const score = forwardPolicy(this.genome.policy.params, featureVector);
 
-            return { move, simGrid: simState.grid, score };
+            return { move, simGrid: simState.grid, score, landing: simState.landingHeight };
         });
 
         candidates.sort((a, b) => b.score - a.score);
 
-        const topN = shouldUseForesight ? Math.min(3, candidates.length) : 1;
-
         let bestScore = -Infinity;
         let bestTarget = null;
 
-        for (let i = 0; i < topN; i++) {
-            const cand = candidates[i];
-            let finalScore = cand.score;
-
-            if (shouldUseForesight) {
-                const nextPieceObj = {
-                    shape: this.nextPiece.shape,
-                    color: this.nextPiece.color,
-                    x: Math.floor((BOARD_WIDTH - this.nextPiece.shape[0].length) / 2),
-                    y: 0
-                };
-
-                const nextMoves = this.getPossibleMoves(nextPieceObj, cand.simGrid);
-                let maxNextScore = -Infinity;
-                const limitedNextMoves = nextMoves.slice(0, 6);
-
-                for (const nm of limitedNextMoves) {
-                    const nextSimState = this.getSimulatedGrid(cand.simGrid, nm);
-                    const nextMetrics = this.calculateMetrics(nextSimState.grid);
-                    const s = this.getScore(nextMetrics, {
-                        linesCleared: nextSimState.linesCleared,
-                        landingHeight: nextSimState.landingHeight,
-                        erodedCells: nextSimState.erodedCells,
-                        centerDev: Math.abs((nm.x + nm.shape[0].length / 2) - (BOARD_WIDTH / 2))
-                    });
-                    if (s > maxNextScore) maxNextScore = s;
-                }
-
-                if (maxNextScore > -Infinity) {
-                    finalScore = (cand.score * 0.6) + (maxNextScore * 0.4);
-                }
-            }
-
+        for (const cand of candidates) {
+            const tieBreaker = -cand.landing * 0.001;
+            const finalScore = cand.score + tieBreaker;
             if (finalScore > bestScore) {
                 bestScore = finalScore;
                 bestTarget = cand.move;
@@ -286,16 +260,6 @@ export class TetrisGame {
     }
 
     generatePath(target: any) {
-        const stress = this.calculateStress();
-        const anxietyTrait = this.genome.traits ? this.genome.traits.anxiety : 0.5;
-
-        if (stress + anxietyTrait > 1.8) {
-            this.actionQueue.push('DROP');
-            return;
-        }
-
-        const isClumsy = anxietyTrait > 0.9 && stress > 0.8;
-
         for (let i = 0; i < target.rot; i++) this.actionQueue.push('ROT');
 
         const dx = target.x - this.currentPiece.x;
@@ -303,12 +267,7 @@ export class TetrisGame {
         const dir = dx < 0 ? 'L' : 'R';
 
         for (let i = 0; i < steps; i++) {
-            if (isClumsy && i === steps - 1) {
-                this.actionQueue.push(dir);
-                this.actionQueue.push(dir);
-            } else {
-                this.actionQueue.push(dir);
-            }
+            this.actionQueue.push(dir);
         }
         this.actionQueue.push('DROP');
     }
@@ -358,24 +317,37 @@ export class TetrisGame {
         };
     }
 
-    getScore(metrics: any, moveStats: any) {
-        const w = this.genome.weights;
-        let score =
-            (metrics.aggregateHeight * (w.height || -0.5)) +
-            (moveStats.linesCleared * (w.lines || 1.0)) * 1.5 + // Boost lines cleared importance
-            (metrics.holes * (w.holes || -1.0)) * 2.0 +     // Heavy penalty for holes
-            (metrics.bumpiness * (w.bumpiness || -0.2)) +
-            (metrics.maxHeight * (w.maxHeight || -0.5)) +
-            (metrics.rowTransitions * (w.rowTransitions || -0.2)) +
-            (metrics.colTransitions * (w.colTransitions || -0.2)) +
-            (metrics.wells * (w.wells || -0.1)) +
-            (metrics.holeDepth * (w.holeDepth || -0.4)) +
-            (metrics.blockades * (w.blockades || -0.5)) +
-            (moveStats.landingHeight * (w.landingHeight || -0.3)) +
-            (moveStats.erodedCells * (w.erodedCells || 0.5)) +
-            (moveStats.centerDev * (w.centerDev || -0.1));
+    buildFeatureVector(metrics: any, moveStats: { linesCleared: number; landingHeight: number; erodedCells: number; centerDev: number; }) {
+        const maxRowTransitions = BOARD_HEIGHT * (BOARD_WIDTH + 1);
+        const maxColTransitions = BOARD_WIDTH * (BOARD_HEIGHT + 1);
+        const maxBumpiness = BOARD_HEIGHT * (BOARD_WIDTH - 1);
+        const maxWells = BOARD_HEIGHT * 4;
 
-        return score;
+        const features: number[] = [];
+        for (const h of metrics.columnHeights) features.push(h / BOARD_HEIGHT);
+        for (const h of metrics.holesByColumn) features.push(h / BOARD_HEIGHT);
+        features.push(metrics.maxHeight / BOARD_HEIGHT);
+        features.push(metrics.aggregateHeight / (BOARD_HEIGHT * BOARD_WIDTH));
+        features.push(metrics.bumpiness / maxBumpiness);
+        features.push(metrics.holes / (BOARD_HEIGHT * BOARD_WIDTH));
+        features.push(metrics.wells / maxWells);
+        features.push(metrics.rowTransitions / maxRowTransitions);
+        features.push(metrics.colTransitions / maxColTransitions);
+        features.push(moveStats.landingHeight / BOARD_HEIGHT);
+        features.push(moveStats.linesCleared / 4);
+        features.push(moveStats.erodedCells / 16);
+        features.push(moveStats.centerDev / (BOARD_WIDTH / 2));
+
+        const nextIndex = Math.max(0, Math.min(6, (this.nextPiece?.color || 1) - 1));
+        for (let i = 0; i < 7; i++) {
+            features.push(i === nextIndex ? 1 : 0);
+        }
+
+        if (features.length !== POLICY_INPUT_SIZE) {
+            const fill = new Array(POLICY_INPUT_SIZE - features.length).fill(0);
+            return features.concat(fill);
+        }
+        return features;
     }
 
     calculateStress() {
@@ -551,6 +523,7 @@ export class TetrisGame {
         }
 
         this.lines += linesCleared;
+        if (linesCleared === 4) this.tetrisCount += 1;
 
         const levelMult = Math.max(1, this.level);
         switch (linesCleared) {
@@ -565,6 +538,14 @@ export class TetrisGame {
         }
 
         this.level = Math.floor(this.lines / 10) + 1;
+
+        const metrics = this.calculateMetrics(this.grid);
+        this.behaviorSamples += 1;
+        this.behaviorSums.holes += metrics.holes;
+        this.behaviorSums.bumpiness += metrics.bumpiness;
+        this.behaviorSums.maxHeight += metrics.maxHeight;
+        this.behaviorSums.wells += metrics.wells;
+
         this.spawnPiece();
     }
 
@@ -581,6 +562,7 @@ export class TetrisGame {
         let blockades = 0;
 
         const columnHeights = new Array(BOARD_WIDTH).fill(0);
+        const holesByColumn = new Array(BOARD_WIDTH).fill(0);
 
         for (let x = 0; x < BOARD_WIDTH; x++) {
             for (let y = 0; y < BOARD_HEIGHT; y++) {
@@ -604,6 +586,7 @@ export class TetrisGame {
                     blocksAbove++;
                 } else if (blocksAbove > 0 && grid[y][x] === 0) {
                     holes++;
+                    holesByColumn[x]++;
                     holeDepth += blocksAbove;
                     blockades++;
                 }
@@ -647,7 +630,25 @@ export class TetrisGame {
 
         return {
             aggregateHeight, completeLines, holes, bumpiness,
-            maxHeight, rowTransitions, colTransitions, wells, holeDepth, blockades
+            maxHeight, rowTransitions, colTransitions, wells, holeDepth, blockades,
+            columnHeights, holesByColumn
         };
+    }
+
+    getBehaviorSignature() {
+        const samples = Math.max(1, this.behaviorSamples);
+        const avgHoles = this.behaviorSums.holes / samples;
+        const avgBumpiness = this.behaviorSums.bumpiness / samples;
+        const avgMaxHeight = this.behaviorSums.maxHeight / samples;
+        const avgWells = this.behaviorSums.wells / samples;
+        const tetrisRate = this.piecesSpawned > 0 ? this.tetrisCount / this.piecesSpawned : 0;
+
+        return [
+            avgHoles / (BOARD_HEIGHT * BOARD_WIDTH),
+            avgBumpiness / (BOARD_HEIGHT * (BOARD_WIDTH - 1)),
+            avgMaxHeight / BOARD_HEIGHT,
+            avgWells / (BOARD_HEIGHT * 4),
+            tetrisRate
+        ];
     }
 }

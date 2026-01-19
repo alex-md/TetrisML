@@ -1,14 +1,11 @@
 
 import React from 'react';
 import { 
-  XAxis, YAxis, Tooltip, ResponsiveContainer, AreaChart, Area,
-  Radar, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis
+  XAxis, YAxis, Tooltip, ResponsiveContainer, AreaChart, Area
 } from 'recharts';
 import { SimulationStats, Genome } from '../types';
 import { 
-  Brain, Zap, Users, Activity, Dna, TrendingUp, Layout, Target, Shield, 
-  MousePointer2, AlertTriangle, Layers, Maximize2, Minimize2, AlignCenter,
-  ArrowDownToLine, Eraser, Grip
+  Brain, Zap, Users, Activity, Dna, TrendingUp, MousePointer2
 } from 'lucide-react';
 
 interface Props {
@@ -19,42 +16,12 @@ interface Props {
 
 const StatsPanel: React.FC<Props> = ({ stats, fitnessHistory, topGenome }) => {
   
-  const radarData = topGenome ? [
-    { subject: 'Speed', A: topGenome.traits.reactionSpeed * 100, fullMark: 100 },
-    { subject: 'Foresight', A: topGenome.traits.foresight * 100, fullMark: 100 },
-    { subject: 'Calm', A: (1 - topGenome.traits.anxiety) * 100, fullMark: 100 },
-  ] : [];
-
-  // Grouping weights for clearer display
-  const weightGroups = topGenome ? [
-      {
-          title: "Core Mechanics",
-          items: [
-              { key: 'lines', icon: Target, label: 'Clear Lines', raw: topGenome.weights.lines, color: 'bg-yellow-500' },
-              { key: 'height', icon: Shield, label: 'Low Height', raw: Math.abs(topGenome.weights.height), color: 'bg-emerald-500' },
-              { key: 'holes', icon: Layout, label: 'Avoid Holes', raw: Math.abs(topGenome.weights.holes), color: 'bg-indigo-500' },
-              { key: 'bumpiness', icon: Activity, label: 'Smooth Surface', raw: Math.abs(topGenome.weights.bumpiness), color: 'bg-pink-500' },
-          ]
-      },
-      {
-          title: "Structure",
-          items: [
-              { key: 'wells', icon: ArrowDownToLine, label: 'Avoid Wells', raw: Math.abs(topGenome.weights.wells), color: 'bg-red-500' },
-              { key: 'maxHeight', icon: Maximize2, label: 'Max Height', raw: Math.abs(topGenome.weights.maxHeight), color: 'bg-orange-500' },
-              { key: 'rowTransitions', icon: AlignCenter, label: 'Row Unity', raw: Math.abs(topGenome.weights.rowTransitions), color: 'bg-blue-400' },
-              { key: 'colTransitions', icon: AlignCenter, label: 'Col Unity', raw: Math.abs(topGenome.weights.colTransitions), color: 'bg-blue-600' },
-          ]
-      },
-      {
-          title: "Advanced",
-          items: [
-              { key: 'erodedCells', icon: Eraser, label: 'Burn Efficiency', raw: topGenome.weights.erodedCells, color: 'bg-purple-500' },
-              { key: 'landingHeight', icon: Minimize2, label: 'Low Landing', raw: Math.abs(topGenome.weights.landingHeight), color: 'bg-teal-500' },
-              { key: 'holeDepth', icon: Layers, label: 'Hole Depth', raw: Math.abs(topGenome.weights.holeDepth), color: 'bg-slate-400' },
-              { key: 'blockades', icon: Grip, label: 'Blockades', raw: Math.abs(topGenome.weights.blockades), color: 'bg-zinc-500' },
-          ]
-      }
-  ] : [];
+  const signalEntries = topGenome
+    ? Object.entries(topGenome.summary.sensitivities)
+        .map(([key, value]) => ({ key, value: value as number }))
+        .sort((a, b) => Math.abs(b.value) - Math.abs(a.value))
+        .slice(0, 12)
+    : [];
 
   return (
     <div className="space-y-6">
@@ -77,7 +44,7 @@ const StatsPanel: React.FC<Props> = ({ stats, fitnessHistory, topGenome }) => {
         <div className="bg-slate-800 p-3 rounded-lg border border-slate-700 flex flex-col justify-between">
           <div className="flex items-center space-x-2 text-slate-400 text-xs mb-1">
             <Zap className="w-3 h-3" />
-            <span>Best Score</span>
+            <span>Best Fitness</span>
           </div>
           <div className="text-2xl font-bold text-cyan-400">{Math.floor(stats.maxFitness)}</div>
         </div>
@@ -122,50 +89,33 @@ const StatsPanel: React.FC<Props> = ({ stats, fitnessHistory, topGenome }) => {
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {/* Weight Groups */}
-                {weightGroups.map((group) => (
-                    <div key={group.title} className="space-y-2">
-                        <h4 className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">{group.title}</h4>
-                        <div className="grid grid-cols-1 gap-2">
-                            {group.items.map((t) => (
-                                <div key={t.key} className="bg-slate-900/50 p-2 rounded border border-slate-700/50">
-                                    <div className="flex justify-between items-center mb-1">
-                                        <span className="text-[10px] text-slate-400 flex items-center gap-1.5 whitespace-nowrap">
-                                            <t.icon size={10} /> {t.label}
-                                        </span>
-                                        <span className="text-[9px] font-mono text-slate-500">{t.raw.toFixed(2)}</span>
-                                    </div>
-                                    <div className="h-1 w-full bg-slate-800 rounded-full overflow-hidden">
-                                        <div className={`h-full ${t.color}`} style={{ width: `${Math.min(100, Math.abs(t.raw) * 100)}%` }} />
-                                    </div>
-                                </div>
-                            ))}
+                <div className="space-y-2">
+                  <h4 className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Top Sensitivities</h4>
+                  <div className="grid grid-cols-1 gap-2">
+                    {signalEntries.map(entry => (
+                      <div key={entry.key} className="bg-slate-900/50 p-2 rounded border border-slate-700/50">
+                        <div className="flex justify-between items-center mb-1">
+                          <span className="text-[10px] text-slate-400 uppercase tracking-widest">{entry.key}</span>
+                          <span className="text-[9px] font-mono text-slate-500">{entry.value.toFixed(2)}</span>
                         </div>
-                    </div>
-                ))}
+                        <div className="h-1 w-full bg-slate-800 rounded-full overflow-hidden">
+                          <div
+                            className={`h-full ${entry.value >= 0 ? 'bg-cyan-400' : 'bg-rose-400'}`}
+                            style={{ width: `${Math.min(100, Math.abs(entry.value) * 100)}%` }}
+                          />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
             </div>
 
-            {/* Radar Chart for Traits */}
-            <div className="mt-6 h-32 relative border-t border-slate-700/50 pt-2">
-                 <h4 className="text-[10px] font-bold text-slate-500 uppercase tracking-wider absolute top-2 left-0">Behavioral Matrix</h4>
-                 <div className="absolute top-2 right-0 text-[10px] text-slate-500 flex flex-col items-end">
-                     <span>Center Dev: {topGenome.weights.centerDev.toFixed(2)}</span>
-                 </div>
-                 <ResponsiveContainer width="100%" height="100%">
-                    <RadarChart cx="50%" cy="50%" outerRadius="70%" data={radarData}>
-                        <PolarGrid stroke="#334155" />
-                        <PolarAngleAxis dataKey="subject" tick={{ fill: '#94a3b8', fontSize: 9 }} />
-                        <PolarRadiusAxis angle={30} domain={[0, 100]} tick={false} axisLine={false} />
-                        <Radar
-                            name="Agent"
-                            dataKey="A"
-                            stroke="#22d3ee"
-                            strokeWidth={2}
-                            fill="#22d3ee"
-                            fillOpacity={0.3}
-                        />
-                    </RadarChart>
-                 </ResponsiveContainer>
+            <div className="mt-6 h-20 relative border-t border-slate-700/50 pt-2">
+              <h4 className="text-[10px] font-bold text-slate-500 uppercase tracking-wider absolute top-2 left-0">Exploration Sigma</h4>
+              <div className="absolute top-2 right-0 text-[10px] text-slate-500 flex flex-col items-end">
+                <span>{topGenome.summary.exploration.toFixed(2)}</span>
+              </div>
+              <div className="mt-6 text-xs text-slate-400">Higher sigma = more exploration pressure in ES updates.</div>
             </div>
           </div>
         </div>
@@ -199,7 +149,7 @@ const StatsPanel: React.FC<Props> = ({ stats, fitnessHistory, topGenome }) => {
                 contentStyle={{ backgroundColor: '#0f172a', border: '1px solid #334155', fontSize: '12px', borderRadius: '8px', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }} 
                 itemStyle={{ color: '#fff' }}
                 labelStyle={{ display: 'none' }}
-                formatter={(value) => [`${value}`, 'Max Score']}
+                formatter={(value) => [`${value}`, 'Max Fitness']}
               />
               <Area 
                 type="monotone" 

@@ -1,13 +1,11 @@
 
 import React from 'react';
 import {
-  XAxis, YAxis, Tooltip, ResponsiveContainer, AreaChart, Area,
-  Radar, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis
+  YAxis, Tooltip, ResponsiveContainer, AreaChart, Area
 } from 'recharts';
 import { SimulationStats, Genome } from '../types';
 import {
-  Brain, Activity, Dna, Target, Shield, Layout,
-  Maximize2, Minimize2, AlignCenter, ArrowDownToLine, Eraser, Grip,
+  Brain, Activity, Dna,
   Microscope, Globe
 } from 'lucide-react';
 
@@ -24,30 +22,12 @@ const AnalysisPanel: React.FC<Props> = ({ stats, fitnessHistory, selectedGenome,
   const activeGenome = selectedGenome || bestGenome;
   const isGlobalView = !selectedGenome;
 
-  const radarData = activeGenome ? [
-    { subject: 'Speed', A: activeGenome.traits.reactionSpeed * 100, fullMark: 100 },
-    { subject: 'Foresight', A: activeGenome.traits.foresight * 100, fullMark: 100 },
-    { subject: 'Calm', A: (1 - activeGenome.traits.anxiety) * 100, fullMark: 100 },
-  ] : [];
-
-  const weightGroups = activeGenome ? [
-    {
-      title: "Mechanics",
-      items: [
-        { key: 'lines', icon: Target, label: 'Lines', raw: activeGenome.weights.lines, color: 'bg-yellow-500' },
-        { key: 'height', icon: Shield, label: 'Height', raw: Math.abs(activeGenome.weights.height), color: 'bg-emerald-500' },
-        { key: 'holes', icon: Layout, label: 'Holes', raw: Math.abs(activeGenome.weights.holes), color: 'bg-indigo-500' },
-      ]
-    },
-    {
-      title: "Structure",
-      items: [
-        { key: 'wells', icon: ArrowDownToLine, label: 'Wells', raw: Math.abs(activeGenome.weights.wells), color: 'bg-red-500' },
-        { key: 'rowTrans', icon: AlignCenter, label: 'Row Un', raw: Math.abs(activeGenome.weights.rowTransitions), color: 'bg-blue-400' },
-        { key: 'eroded', icon: Eraser, label: 'Burn', raw: activeGenome.weights.erodedCells, color: 'bg-purple-500' },
-      ]
-    }
-  ] : [];
+  const signalEntries = activeGenome
+    ? Object.entries(activeGenome.summary.sensitivities)
+        .map(([key, value]) => ({ key, value: value as number }))
+        .sort((a, b) => Math.abs(b.value) - Math.abs(a.value))
+        .slice(0, 10)
+    : [];
 
   return (
     <div className="flex flex-col h-full space-y-4">
@@ -110,7 +90,7 @@ const AnalysisPanel: React.FC<Props> = ({ stats, fitnessHistory, selectedGenome,
           <div className="flex justify-between items-start mb-4">
             <div>
               <h4 className="text-[10px] font-bold text-slate-500 uppercase flex items-center gap-2">
-                <Brain size={12} /> Neural Weights
+                <Brain size={12} /> Policy Sensitivities
               </h4>
             </div>
             <div className="text-[10px] font-mono text-slate-400">
@@ -119,38 +99,32 @@ const AnalysisPanel: React.FC<Props> = ({ stats, fitnessHistory, selectedGenome,
           </div>
 
           <div className="grid grid-cols-2 gap-x-4 gap-y-6">
-            {/* Left: Weights */}
-            <div className="space-y-3">
-              {weightGroups.map((group) => (
-                <div key={group.title} className="space-y-1.5">
-                  <div className="text-[9px] text-slate-600 uppercase tracking-widest">{group.title}</div>
-                  {group.items.map((t) => (
-                    <div key={t.key}>
-                      <div className="flex justify-between text-[9px] text-slate-400 mb-0.5">
-                        <span>{t.label}</span>
-                        <span className="font-mono">{t.raw.toFixed(1)}</span>
-                      </div>
-                      <div className="h-1 bg-slate-800 rounded-full overflow-hidden">
-                        <div className={`h-full ${t.color}`} style={{ width: `${Math.min(100, Math.abs(t.raw) * 100)}%` }} />
-                      </div>
-                    </div>
-                  ))}
+            <div className="space-y-2">
+              {signalEntries.map(entry => (
+                <div key={entry.key}>
+                  <div className="flex justify-between text-[9px] text-slate-400 mb-0.5">
+                    <span className="uppercase tracking-widest">{entry.key}</span>
+                    <span className="font-mono">{entry.value.toFixed(2)}</span>
+                  </div>
+                  <div className="h-1 bg-slate-800 rounded-full overflow-hidden">
+                    <div
+                      className={`h-full ${entry.value >= 0 ? 'bg-cyan-400' : 'bg-rose-400'}`}
+                      style={{ width: `${Math.min(100, Math.abs(entry.value) * 100)}%` }}
+                    />
+                  </div>
                 </div>
               ))}
             </div>
 
-            {/* Right: Radar */}
-            <div className="h-full min-h-[120px] relative">
+            <div className="h-full min-h-[120px] relative flex items-center justify-center text-center text-xs text-slate-400">
               <div className="absolute inset-0 flex items-center justify-center pointer-events-none opacity-20">
                 <Dna size={80} className="text-cyan-500 animate-pulse-slow" />
               </div>
-              <ResponsiveContainer width="100%" height="100%">
-                <RadarChart cx="50%" cy="50%" outerRadius="70%" data={radarData}>
-                  <PolarGrid stroke="#334155" />
-                  <PolarAngleAxis dataKey="subject" tick={{ fill: '#64748b', fontSize: 8 }} />
-                  <Radar name="Agent" dataKey="A" stroke="#22d3ee" strokeWidth={1.5} fill="#22d3ee" fillOpacity={0.2} />
-                </RadarChart>
-              </ResponsiveContainer>
+              <div className="relative z-10">
+                <div className="text-[10px] uppercase tracking-[0.25em] text-slate-500">Exploration</div>
+                <div className="mt-2 text-2xl font-semibold text-cyan-300">{activeGenome.summary.exploration.toFixed(2)}</div>
+                <div className="mt-2 text-[10px] text-slate-500">ES sigma for this generation</div>
+              </div>
             </div>
           </div>
 
@@ -160,8 +134,8 @@ const AnalysisPanel: React.FC<Props> = ({ stats, fitnessHistory, selectedGenome,
               <span className="text-cyan-400 capitalize">{activeGenome.bornMethod}</span>
             </div>
             <div className="bg-slate-950 p-2 rounded border border-slate-800">
-              <span className="block text-slate-500">Center Bias</span>
-              <span className="text-purple-400">{activeGenome.weights.centerDev.toFixed(2)}</span>
+              <span className="block text-slate-500">Policy Inputs</span>
+              <span className="text-purple-400">{Object.keys(activeGenome.summary.sensitivities).length}</span>
             </div>
           </div>
         </div>

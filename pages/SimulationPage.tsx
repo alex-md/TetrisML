@@ -229,7 +229,7 @@ const SimulationPage: React.FC<SimulationPageProps> = ({
             <p>Initializing neural evolution engine...</p>
             {stats.generation > 1 && <p>{'>'} Generation {stats.generation - 1} complete. Optimization routine finished.</p>}
             {stats.diversity < 10 && <p className="text-red-400">{'>'} WARNING: Genetic diversity low. Mass extinction event imminent to prevent local minima stagnation.</p>}
-            {selectedAgentId && <p className="text-cyan-400">{'>'} Analysing neural weights for specimen {selectedAgentId.substring(0, 4)}...</p>}
+            {selectedAgentId && <p className="text-cyan-400">{'>'} Analysing policy sensitivities for specimen {selectedAgentId.substring(0, 4)}...</p>}
           </div>
         </aside>
       </div>

@@ -1,65 +1,62 @@
-# TetrisML: Evolutionary ML AI visualizer
+# TetrisML
 
-A web-based "aquarium" for Tetris AI, allowing real-time observation of an evolving population of agents. Featuring a Cloudflare Workers backend for infinite persistence.
+A real-time Tetris genetic algorithm “aquarium.” Watch agents evolve, track lineage and telemetry, and persist progress across sessions.
 
-## 🚀 Quick Start (Local Development)
+## Features
+- Live simulation with population stats, diversity tracking, and auto-tuning mutation.
+- Dedicated Web Worker keeps the UI responsive during heavy evolution cycles.
+- Visual tooling: neural maps, telemetry, lineage tree, timeline snapshots, and high scores.
+- Persistence to both `localStorage` and a Cloudflare Worker + KV backend.
 
-### 1. Frontend Setup
-1.  **Install dependencies**:
-    `npm install`
-2.  **Run the app**:
-    `npm run dev`
+## Tech Stack
+- React + TypeScript + Vite
+- Web Worker simulation engine (`services/simulation/simulation.worker.ts`)
+- Cloudflare Worker backend (`backend/src/index.js`) with KV storage
+- Recharts for charts, Lucide for icons, custom CSS
 
-### 2. Backend Setup
-The backend handles persistent storage of the genetic population.
-1.  **Navigate to backend**:
-    `cd backend`
-2.  **Install dependencies**:
-    `npm install`
-3.  **Run local worker**:
-    `npm run dev`
-    *(Starts at http://localhost:8787)*
+## Project Structure
+- `App.tsx` — app shell, routes, persistence, worker wiring
+- `components/` — shared UI elements
+- `pages/` — page-level views (Arena, Telemetry, Lineage, etc.)
+- `services/simulation/` — Tetris engine + genetic algorithm
+- `backend/` — Cloudflare Worker and Wrangler config
+- `public/` — static assets
+- `dist/` — production build output (generated)
 
----
+## Local Development
+Frontend (root):
+```bash
+npm install
+npm run dev
+```
 
-## ☁️ Cloudflare Deployment
+Backend (Cloudflare Worker):
+```bash
+cd backend
+npm install
+npm run dev
+```
+The worker defaults to `http://localhost:8787`. Update `API_BASE` in `App.tsx` if you want the frontend to use the local worker.
 
-### 1. Deploy the Backend (Worker)
-The backend uses Cloudflare KV for persistence.
+Production build preview:
+```bash
+npm run build
+npm run preview
+```
 
-1.  **Login to Wrangler**:
-    `npx wrangler login`
-2.  **Create KV Namespace**:
-    Create a KV namespace in your Cloudflare Dashboard (Workers & Pages -> KV).
-3.  **Update Config**:
-    In `backend/wrangler.toml`, Replace `TETRIS_STATE_ID` with your actual KV Namespace ID.
-4.  **Deploy**:
-    `cd backend && npm run deploy`
+## Persistence & API
+The frontend stores local state under `TetrisML-population-v1` and syncs to the Worker API:
+- `GET /api/state` — fetch persisted population state
+- `POST /api/state` — save state (JSON payload, 5MB max)
+- `POST /api/reset` — clear persisted state
 
-### 2. Configure the Frontend
-1.  Open `App.tsx`.
-2.  Change `const API_BASE` to match your newly deployed worker URL (e.g., `https://tetrisml.yourname.workers.dev`).
+## Deployment (Cloudflare)
+Backend:
+1. `npx wrangler login`
+2. Create a KV namespace in the Cloudflare dashboard.
+3. Update `backend/wrangler.toml` with the KV `id` and `preview_id` (binding name is `KV`).
+4. Deploy: `cd backend && npm run deploy`
 
-### 3. Deploy the Frontend (Pages)
-1.  Run `npm run build`.
-2.  Upload the `dist` folder to Cloudflare Pages via the dashboard or using `npx wrangler pages deploy dist`.
-
----
-
-## 🧠 System Architecture
-
-- **Frontend**: React + Vite, visualizing agent states in real-time.
-- **Worker Thread**: The heavy lifting (Tetris logic, GA evolution) runs in a dedicated Web Worker to keep the UI fluid.
-- **Backend**: Cloudflare Worker + KV. Periodically syncs the population genome so progress persists across sessions.
-- **Persistence**: Auto-saves every 10 seconds to both `localStorage` (for offline/immediate) and the Worker backend (for "infinite" survival).
-
-## 🛠️ Tech Stack
-- **Engine**: Custom Bitboard-inspired Tetris Logic
-- **AI**: Genetic Algorithm / Neural Heuristic Search
-- **UI**: Tailwind CSS + Lucide Icons
-- **Persistence**: Cloudflare Workers + KV
-
-
-1. npm run deploy
-2. npm run build
-3. npx wrangler pages deploy dist
+Frontend:
+1. `npm run build`
+2. Deploy `dist/` (e.g., Cloudflare Pages via `npx wrangler pages deploy dist`)

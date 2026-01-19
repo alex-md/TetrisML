@@ -1,12 +1,32 @@
 import { TetrisGame } from './TetrisGame';
 import * as GA from './EvolutionEngine';
 import { GAMES_PER_GEN, BOARD_WIDTH, POPULATION_SIZE } from './constants';
-import { Genome, MainMessage, AgentState, LeaderboardEntry, LineageNode, FullSimulationState, GhostPlayback, GhostFrame, TelemetryFrame } from '../../types';
+import {
+    Genome,
+    MainMessage,
+    AgentState,
+    LeaderboardEntry,
+    LineageNode,
+    FullSimulationState,
+    GhostPlayback,
+    GhostFrame,
+    TelemetryFrame
+} from '../../types';
+import {
+    POLICY_INPUT_SIZE,
+    POLICY_HIDDEN_SIZE,
+    POLICY_PARAM_COUNT,
+    createSeedPolicyParams,
+    createRandomPolicyParams,
+    summarizePolicy
+} from './policy';
 
 let population: TetrisGame[] = [];
+let populationNoise: number[][] = [];
 let generation = 1;
 let populationSize = POPULATION_SIZE;
-let mutationRate = 0.02;
+let sigma = 0.28;
+let stepSize = 0.35;
 const speed = 1;
 let isPaused = false;
 let lastUpdateTime = 0;
@@ -25,127 +45,201 @@ let telemetryHistory: TelemetryFrame[] = [];
 const MAX_LINEAGE_HISTORY = 30;
 const MAX_TELEMETRY_HISTORY = 60;
 const MAX_GHOST_FRAMES = 240;
+const NOVELTY_ARCHIVE_SIZE = 64;
+const NOVELTY_WEIGHT = 0.15;
+const PARAM_DECAY = 0.002;
+
 let lastLineageGen = 0;
+let policyMeanParams = createSeedPolicyParams();
+let noveltyArchive: number[][] = [];
 
-const cloneGrid = (grid: number[][]) => grid.map(row => [...row]);
+const CURRICULUM_STAGES = [
+    { score: 0, gravityScale: 1.35, maxPieces: 600, label: 'Warmup' },
+    { score: 2500, gravityScale: 1.2, maxPieces: 1000, label: 'Bootcamp' },
+    { score: 8000, gravityScale: 1.05, maxPieces: 1600, label: 'Arena' },
+    { score: 18000, gravityScale: 0.95, maxPieces: 2400, label: 'Gauntlet' },
+    { score: 32000, gravityScale: 0.85, maxPieces: 3400, label: 'Endgame' }
+];
 
-const WEIGHT_RANGES: Record<keyof Genome['weights'], [number, number]> = {
-    height: [-0.5, 0],
-    lines: [0.5, 1],
-    holes: [-0.8, -0.4],
-    bumpiness: [-0.3, 0],
-    maxHeight: [-0.5, 0],
-    rowTransitions: [-0.5, 0],
-    colTransitions: [-0.5, 0],
-    wells: [-0.5, 0],
-    holeDepth: [-0.5, 0],
-    blockades: [-0.5, 0],
-    landingHeight: [-0.3, 0],
-    erodedCells: [0.2, 1],
-    centerDev: [-0.1, 0.1]
+const randn = () => {
+    let u = 0;
+    let v = 0;
+    while (u === 0) u = Math.random();
+    while (v === 0) v = Math.random();
+    return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v);
 };
 
-const TRAIT_RANGES: Record<keyof Genome['traits'], [number, number]> = {
-    reactionSpeed: [0, 1],
-    foresight: [0, 1],
-    anxiety: [0, 1]
-};
+const addScaled = (base: number[], noise: number[], scale: number) => base.map((v, i) => v + noise[i] * scale);
 
-const clamp01 = (value: number) => Math.max(0, Math.min(1, value));
-
-const normalizeValue = (value: number, range: [number, number]) => {
-    const [min, max] = range;
-    if (max === min) return 0;
-    return clamp01((value - min) / (max - min));
-};
-
-const genomeToVector = (genome: Genome) => {
-    const vector: number[] = [];
-    (Object.keys(WEIGHT_RANGES) as (keyof Genome['weights'])[]).forEach(key => {
-        vector.push(normalizeValue(genome.weights[key], WEIGHT_RANGES[key]));
+const averageParams = (paramsList: number[][]) => {
+    if (paramsList.length === 0) return createSeedPolicyParams();
+    const sum = new Array(paramsList[0].length).fill(0);
+    paramsList.forEach(vec => {
+        for (let i = 0; i < vec.length; i++) sum[i] += vec[i];
     });
-    (Object.keys(TRAIT_RANGES) as (keyof Genome['traits'])[]).forEach(key => {
-        vector.push(normalizeValue(genome.traits[key], TRAIT_RANGES[key]));
-    });
-    return vector;
+    return sum.map(v => v / paramsList.length);
 };
 
-const genomeDistance = (a: Genome, b: Genome) => {
-    const va = genomeToVector(a);
-    const vb = genomeToVector(b);
-    let sum = 0;
-    for (let i = 0; i < va.length; i++) {
-        const diff = va[i] - vb[i];
-        sum += diff * diff;
+const getCurriculum = (bestScore: number) => {
+    let stage = CURRICULUM_STAGES[0];
+    for (const entry of CURRICULUM_STAGES) {
+        if (bestScore >= entry.score) stage = entry;
     }
-    return Math.sqrt(sum / va.length);
+    return stage;
 };
 
-const computeDiversity = (pop: TetrisGame[]) => {
-    if (pop.length < 2) return 0;
+const normalizeGenome = (genome: any): Genome => {
+    if (genome?.policy?.params && Array.isArray(genome.policy.params)) {
+        const params = genome.policy.params.length === POLICY_PARAM_COUNT
+            ? genome.policy.params
+            : createRandomPolicyParams();
+        const summary = summarizePolicy(params, sigma);
+        return {
+            id: genome.id,
+            policy: {
+                inputSize: genome.policy.inputSize ?? POLICY_INPUT_SIZE,
+                hiddenSize: genome.policy.hiddenSize ?? POLICY_HIDDEN_SIZE,
+                params
+            },
+            summary: { ...summary, exploration: sigma },
+            generation: genome.generation ?? generation,
+            fitness: genome.fitness ?? 0,
+            color: genome.color ?? GA.randomColor(),
+            parents: genome.parents ?? [],
+            bornMethod: genome.bornMethod ?? 'imported'
+        };
+    }
+
+    const params = createRandomPolicyParams();
+    return {
+        id: genome?.id ?? GA.generateId(),
+        policy: { inputSize: POLICY_INPUT_SIZE, hiddenSize: POLICY_HIDDEN_SIZE, params },
+        summary: summarizePolicy(params, sigma),
+        generation: genome?.generation ?? generation,
+        fitness: genome?.fitness ?? 0,
+        color: genome?.color ?? GA.randomColor(),
+        parents: genome?.parents ?? [],
+        bornMethod: 'imported'
+    };
+};
+
+const buildGenome = (params: number[], bornMethod: Genome['bornMethod'], parents: string[]) => {
+    const summary = summarizePolicy(params, sigma);
+    return {
+        id: GA.generateId(),
+        policy: { inputSize: POLICY_INPUT_SIZE, hiddenSize: POLICY_HIDDEN_SIZE, params },
+        summary: { ...summary, exploration: sigma },
+        generation,
+        fitness: 0,
+        color: GA.randomColor(),
+        parents,
+        bornMethod
+    } as Genome;
+};
+
+const computeFitness = (agent: TetrisGame) => {
+    const metrics = agent.calculateMetrics(agent.grid);
+    const score = agent.averageScore ?? agent.score;
+    const lineBonus = agent.lines * 60;
+    const tetrisBonus = agent.tetrisCount * 450;
+    const holePenalty = metrics.holes * 40;
+    const bumpPenalty = metrics.bumpiness * 6;
+    const heightPenalty = metrics.maxHeight * 10;
+    const wellBonus = Math.min(12, metrics.wells) * 5;
+    const depthPenalty = metrics.holeDepth * 0.4;
+    const blockadePenalty = metrics.blockades * 0.6;
+    const cleanlinessBonus = Math.max(0, (BOARD_WIDTH * 2 - metrics.holes)) * 4;
+
+    return score + lineBonus + tetrisBonus + wellBonus + cleanlinessBonus - holePenalty - bumpPenalty - heightPenalty - depthPenalty - blockadePenalty;
+};
+
+const computeNovelty = (signature: number[]) => {
+    if (noveltyArchive.length === 0) return 0;
+    const distances = noveltyArchive.map(arch => {
+        let sum = 0;
+        for (let i = 0; i < signature.length; i++) {
+            const diff = signature[i] - arch[i];
+            sum += diff * diff;
+        }
+        return Math.sqrt(sum);
+    });
+    distances.sort((a, b) => a - b);
+    const k = Math.min(5, distances.length);
+    const avg = distances.slice(0, k).reduce((acc, v) => acc + v, 0) / k;
+    return avg;
+};
+
+const rankNormalize = (values: number[]) => {
+    const indices = values.map((_, i) => i).sort((a, b) => values[b] - values[a]);
+    const utilities = new Array(values.length).fill(0);
+    for (let rank = 0; rank < indices.length; rank++) {
+        const idx = indices[rank];
+        utilities[idx] = (indices.length - rank - 0.5) / indices.length - 0.5;
+    }
+    return utilities;
+};
+
+const computeDiversity = (paramsList: number[][]) => {
+    if (paramsList.length < 2) return 0;
     let sum = 0;
     let pairs = 0;
-    for (let i = 0; i < pop.length; i++) {
-        for (let j = i + 1; j < pop.length; j++) {
-            sum += genomeDistance(pop[i].genome, pop[j].genome);
+    for (let i = 0; i < paramsList.length; i++) {
+        for (let j = i + 1; j < paramsList.length; j++) {
+            let dist = 0;
+            const a = paramsList[i];
+            const b = paramsList[j];
+            for (let k = 0; k < a.length; k++) {
+                const diff = a[k] - b[k];
+                dist += diff * diff;
+            }
+            sum += Math.sqrt(dist / a.length);
             pairs++;
         }
     }
     const mean = pairs === 0 ? 0 : sum / pairs;
-    return Math.min(100, mean * 100);
+    return Math.min(100, Math.round(mean * 40));
 };
 
-const pickDistantMate = (base: TetrisGame, pool: TetrisGame[], sampleSize = 6) => {
-    let best = pool[Math.floor(Math.random() * pool.length)];
-    let bestDist = genomeDistance(base.genome, best.genome);
-    for (let i = 0; i < sampleSize; i++) {
-        const candidate = pool[Math.floor(Math.random() * pool.length)];
-        if (candidate.genome.id === base.genome.id) continue;
-        const dist = genomeDistance(base.genome, candidate.genome);
-        if (dist > bestDist) {
-            bestDist = dist;
-            best = candidate;
+const createPopulation = (curriculumOverride?: { gravityScale: number; maxPieces: number; }) => {
+    population = [];
+    populationNoise = [];
+    runSequences = GA.generateRunSequences();
+
+    const curriculum = curriculumOverride ?? getCurriculum(0);
+
+    const pairs = Math.ceil(populationSize / 2);
+    for (let i = 0; i < pairs; i++) {
+        const noise = new Array(POLICY_PARAM_COUNT).fill(0).map(randn);
+        const signs = [1, -1];
+        for (const sign of signs) {
+            if (population.length >= populationSize) break;
+            const params = addScaled(policyMeanParams, noise, sigma * sign);
+            const genome = buildGenome(params, 'es-sample', []);
+            const agent = new TetrisGame(genome, runSequences, {
+                gravityScale: curriculum.gravityScale,
+                maxPieces: curriculum.maxPieces
+            });
+            population.push(agent);
+            populationNoise.push(noise.map(v => v * sign));
         }
     }
-    return best;
 };
-
-const randomizeGenomeSlice = (genome: Genome, probability: number) => {
-    let changed = false;
-    (Object.keys(WEIGHT_RANGES) as (keyof Genome['weights'])[]).forEach(key => {
-        if (Math.random() < probability) {
-            const [min, max] = WEIGHT_RANGES[key];
-            genome.weights[key] = min + Math.random() * (max - min);
-            changed = true;
-        }
-    });
-    (Object.keys(TRAIT_RANGES) as (keyof Genome['traits'])[]).forEach(key => {
-        if (Math.random() < probability) {
-            const [min, max] = TRAIT_RANGES[key];
-            genome.traits[key] = min + Math.random() * (max - min);
-            changed = true;
-        }
-    });
-    if (changed) genome.bornMethod = 'diversify';
-};
-
-const cloneCurrentPiece = (piece: any) => ({
-    shape: piece.shape.map((row: number[]) => [...row]),
-    x: piece.x,
-    y: piece.y,
-    color: piece.color
-});
 
 function captureGhostFrame(agent: TetrisGame) {
     if (!bestEverGhost || agent.genome.id !== ghostTargetId) return;
     if (bestEverGhost.frames.length >= MAX_GHOST_FRAMES) return;
 
     const frame: GhostFrame = {
-        grid: cloneGrid(agent.grid)
+        grid: agent.grid.map(row => [...row])
     };
 
     if (agent.currentPiece) {
-        frame.currentPiece = cloneCurrentPiece(agent.currentPiece);
+        frame.currentPiece = {
+            shape: agent.currentPiece.shape.map((row: number[]) => [...row]),
+            x: agent.currentPiece.x,
+            y: agent.currentPiece.y,
+            color: agent.currentPiece.color
+        };
     }
 
     bestEverGhost.frames.push(frame);
@@ -155,35 +249,42 @@ function sendUpdate() {
     if (lineageHistory.length === 0 || lastLineageGen !== generation) {
         recordLineage();
     }
-    const fitnessScore = (agent: TetrisGame) => Math.log10(Math.max(1, agent.averageScore ?? agent.score));
-    let diversity = computeDiversity(population);
 
-    const agents: AgentState[] = population.map(p => ({
-        id: p.genome.id,
-        grid: p.grid,
-        score: p.score,
-        lines: p.lines,
-        level: p.level,
-        isAlive: p.isAlive,
-        genome: p.genome,
-        currentPiece: p.currentPiece,
-        nextPiecePreview: p.nextPiece.shape
-    }));
+    const agents: AgentState[] = population.map(p => {
+        p.genome.summary = summarizePolicy(p.genome.policy.params, sigma);
+        return {
+            id: p.genome.id,
+            grid: p.grid,
+            score: p.score,
+            lines: p.lines,
+            level: p.level,
+            isAlive: p.isAlive,
+            genome: p.genome,
+            currentPiece: p.currentPiece,
+            nextPiecePreview: p.nextPiece.shape
+        };
+    });
 
-    const allFitness = population.map(p => fitnessScore(p));
-    const maxFitness = Math.max(...allFitness);
+    const fitnessValues = population.map(p => computeFitness(p));
+    const maxFitness = Math.max(...fitnessValues, 0);
     if (maxFitness > bestEverFitness) bestEverFitness = maxFitness;
+
+    const avgFitness = fitnessValues.reduce((a, b) => a + b, 0) / Math.max(1, fitnessValues.length);
+    const diversity = computeDiversity(population.map(p => p.genome.policy.params));
+
+    const bestScore = Math.max(...population.map(p => p.score), 0);
+    const curriculum = getCurriculum(bestScore);
 
     const stats = {
         generation,
         maxFitness,
         bestEverFitness,
-        avgFitness: allFitness.reduce((a, b) => a + b, 0) / populationSize,
-        medianFitness: GA.median(allFitness),
-        diversity: Math.floor(diversity),
-        mutationRate,
+        avgFitness,
+        medianFitness: GA.median(fitnessValues),
+        diversity,
+        mutationRate: sigma,
         populationSize,
-        stage: (isPaused ? 'Paused' : (diversity < 5 ? 'Mass Extinction' : 'Stable Evolution')) as any
+        stage: isPaused ? 'Paused' : (curriculum.label === 'Warmup' ? 'Training' : 'Stable Evolution') as any
     };
 
     self.postMessage({
@@ -193,7 +294,7 @@ function sendUpdate() {
             stats,
             lineage: lineageHistory,
             leaderboard,
-            mutationRate,
+            mutationRate: sigma,
             stagnationCount,
             ghost: bestEverGhost || undefined,
             telemetryHistory
@@ -202,39 +303,37 @@ function sendUpdate() {
 }
 
 function initPopulation() {
-    population = [];
     lineageHistory = [];
     leaderboard = [];
-    runSequences = GA.generateRunSequences();
     bestEverGhost = null;
     ghostTargetId = null;
     bestEverGhostScore = 0;
     telemetryHistory = [];
+    fitnessHistory = [];
+    stagnationCount = 0;
     populationSize = POPULATION_SIZE;
-
-    for (let i = 0; i < populationSize; i++) {
-        const genome = GA.createRandomGenome(1);
-        population.push(new TetrisGame(genome, runSequences));
-    }
+    policyMeanParams = createSeedPolicyParams();
+    noveltyArchive = [];
+    createPopulation(getCurriculum(0));
     recordLineage();
 }
 
 function recordLineage() {
     const nodes: LineageNode[] = population.map(p => {
         const metrics = p.calculateMetrics(p.grid);
+        p.genome.summary = summarizePolicy(p.genome.policy.params, sigma);
         return {
             id: p.genome.id,
             generation: p.genome.generation,
             parents: p.genome.parents,
-            fitness: p.averageScore || p.score,
+            fitness: computeFitness(p),
             score: p.score,
             lines: p.lines,
             level: p.level,
             avgScore: p.averageScore || p.score,
             stress: p.calculateStress(),
             metrics,
-            traits: p.genome.traits,
-            weights: p.genome.weights,
+            summary: p.genome.summary,
             color: p.genome.color,
             bornMethod: p.genome.bornMethod
         };
@@ -325,103 +424,54 @@ function updateLeaderboard() {
 }
 
 function evolve() {
-    const fitnessScore = (agent: TetrisGame) => Math.log10(Math.max(1, agent.averageScore ?? agent.score));
-    const rankSelect = (sortedPop: TetrisGame[]) => {
-        const n = sortedPop.length;
-        const total = (n * (n + 1)) / 2;
-        let r = Math.random() * total;
-        for (let i = 0; i < n; i++) {
-            const weight = n - i;
-            if (r < weight) return sortedPop[i];
-            r -= weight;
-        }
-        return sortedPop[0];
-    };
-
     updateLeaderboard();
-    population.sort((a, b) => fitnessScore(b) - fitnessScore(a));
 
-    const currentBest = fitnessScore(population[0]);
-    if (currentBest > bestEverFitness) bestEverFitness = currentBest;
+    const fitnesses = population.map(agent => computeFitness(agent));
+    const signatures = population.map(agent => agent.getBehaviorSignature());
+    const novelties = signatures.map(sig => computeNovelty(sig));
 
-    const avgFitness = population.reduce((sum, p) => sum + fitnessScore(p), 0) / populationSize;
+    const fitnessRanks = rankNormalize(fitnesses);
+    const noveltyRanks = rankNormalize(novelties);
+    const combinedScores = fitnessRanks.map((fit, i) => fit * (1 - NOVELTY_WEIGHT) + noveltyRanks[i] * NOVELTY_WEIGHT);
+
+    const grad = new Array(POLICY_PARAM_COUNT).fill(0);
+    for (let i = 0; i < population.length; i++) {
+        const weight = combinedScores[i];
+        const noise = populationNoise[i];
+        for (let p = 0; p < grad.length; p++) {
+            grad[p] += weight * noise[p];
+        }
+    }
+
+    for (let p = 0; p < policyMeanParams.length; p++) {
+        policyMeanParams[p] = policyMeanParams[p] * (1 - PARAM_DECAY) + (stepSize / (population.length * sigma)) * grad[p];
+    }
+
+    const avgFitness = fitnesses.reduce((sum, v) => sum + v, 0) / Math.max(1, fitnesses.length);
     fitnessHistory.push(avgFitness);
     if (fitnessHistory.length > 8) fitnessHistory.shift();
 
-    // Adaptive mutation
     if (fitnessHistory.length >= 5) {
         const trend = fitnessHistory[fitnessHistory.length - 1] - fitnessHistory[0];
         if (trend <= 0) stagnationCount++;
         else stagnationCount = 0;
     }
 
-    let diversity = computeDiversity(population);
+    if (stagnationCount > 2) sigma = Math.min(0.45, sigma + 0.03);
+    else sigma = Math.max(0.18, sigma - 0.01);
 
-    const isExtinctionEvent = diversity < 3;
-    runSequences = GA.generateRunSequences();
-
-    const newPop: TetrisGame[] = [];
-
-    // 1. Elitism (Top 2-5%)
-    const eliteCount = Math.max(1, Math.floor(populationSize * 0.05));
-    const elites = population.slice(0, eliteCount);
-    newPop.push(...elites.map(e => {
-        // Create a DEEP COPY of the elite genome to ensure no accidental mutations
-        const eliteGenome = JSON.parse(JSON.stringify(e.genome));
-        return new TetrisGame({
-            ...eliteGenome,
-            generation: generation + 1,
-            fitness: e.averageScore || e.score,
-            parents: [e.genome.id],
-            bornMethod: 'elite'
-        }, runSequences);
-    }));
-
-    if (isExtinctionEvent) {
-        console.log("!!! MASS EXTINCTION EVENT !!!");
-        while (newPop.length < populationSize) {
-            const fresh = GA.createRandomGenome(generation + 1);
-            newPop.push(new TetrisGame(fresh, runSequences));
-        }
-        mutationRate = 0.1;
-    } else {
-        // 2. Breeding (Diversity-aware selection)
-        const diversityTarget = 20;
-        const diversityPressure = Math.max(0, Math.min(1, (diversityTarget - diversity) / diversityTarget));
-        const immigrantCount = Math.max(1, Math.floor(populationSize * (0.05 + (0.25 * diversityPressure))));
-        const breedTarget = populationSize - immigrantCount;
-        const boostedMutationRate = Math.min(0.25, mutationRate + (0.05 * diversityPressure));
-        const sigmaScale = 1 + (2 * diversityPressure);
-
-        while (newPop.length < breedTarget) {
-            let p1 = rankSelect(population);
-            let p2 = diversityPressure > 0 ? pickDistantMate(p1, population) : rankSelect(population);
-            const childGenome = GA.crossover(p1.genome, p2.genome, generation + 1);
-            GA.mutate(childGenome, boostedMutationRate, sigmaScale);
-            if (diversityPressure > 0 && Math.random() < 0.2 * diversityPressure) {
-                randomizeGenomeSlice(childGenome, 0.35);
-            }
-            newPop.push(new TetrisGame(childGenome, runSequences));
-        }
-
-        // 3. Immigrants
-        while (newPop.length < populationSize) {
-            const immigrant = GA.createRandomGenome(generation + 1);
-            newPop.push(new TetrisGame(immigrant, runSequences));
-        }
-
-        // 4. Adaptive mutation rate adjustment
-        if (diversity < 10) {
-            mutationRate = Math.min(0.25, mutationRate + 0.02);
-        } else if (stagnationCount > 3) {
-            mutationRate = Math.min(0.2, mutationRate + 0.01);
-        } else {
-            mutationRate = Math.max(0.005, mutationRate - 0.002);
-        }
+    const noveltySorted = signatures
+        .map((sig, i) => ({ sig, novelty: novelties[i] }))
+        .sort((a, b) => b.novelty - a.novelty)
+        .slice(0, 4);
+    noveltySorted.forEach(item => noveltyArchive.push(item.sig));
+    if (noveltyArchive.length > NOVELTY_ARCHIVE_SIZE) {
+        noveltyArchive = noveltyArchive.slice(noveltyArchive.length - NOVELTY_ARCHIVE_SIZE);
     }
 
-    population = newPop;
+    const bestScore = Math.max(...population.map(p => p.score), 0);
     generation++;
+    createPopulation(getCurriculum(bestScore));
     recordLineage();
 }
 
@@ -438,9 +488,6 @@ setInterval(() => {
             if (agent.isAlive) {
                 allDead = false;
                 agent.tick();
-                if (Math.random() < 0.0001 * agent.level) {
-                    agent.addGarbageLine();
-                }
 
                 if (agent.score > bestEverGhostScore) {
                     bestEverGhostScore = agent.score;
@@ -456,7 +503,6 @@ setInterval(() => {
 
                 captureGhostFrame(agent);
             } else if (agent.runsCompleted < GAMES_PER_GEN) {
-                // If a run finished but still have runs left in the gen
                 allDead = false;
                 agent.runScores.push(agent.score);
                 agent.runsCompleted++;
@@ -489,7 +535,6 @@ self.onmessage = (e: MessageEvent<MainMessage>) => {
 
     if (type === 'PAUSE') { isPaused = true; sendUpdate(); }
     if (type === 'RESUME') isPaused = false;
-    // Speed control intentionally disabled to preserve deterministic pacing.
     if (type === 'RESET') {
         generation = 1;
         initPopulation();
@@ -498,31 +543,35 @@ self.onmessage = (e: MessageEvent<MainMessage>) => {
     if (type === 'IMPORT_STATE') {
         const state = payload as FullSimulationState;
 
-        // Restore Population
         runSequences = GA.generateRunSequences();
-        population = state.population.map(g => new TetrisGame(g, runSequences));
+        const restoredCurriculum = getCurriculum(Math.max(...(state.population || []).map((g: any) => g?.score ?? 0), 0));
+        population = state.population.map(g => new TetrisGame(normalizeGenome(g), runSequences, restoredCurriculum));
+        populationNoise = population.map(() => new Array(POLICY_PARAM_COUNT).fill(0));
 
-        // Restore Simulation Variables
+        generation = state.stats.generation;
         populationSize = Math.max(POPULATION_SIZE, population.length);
         if (population.length < POPULATION_SIZE) {
             for (let i = population.length; i < POPULATION_SIZE; i++) {
-                const genome = GA.createRandomGenome(generation);
-                population.push(new TetrisGame(genome, runSequences));
+                const genome = buildGenome(addScaled(policyMeanParams, new Array(POLICY_PARAM_COUNT).fill(0).map(randn), sigma), 'seed', []);
+                population.push(new TetrisGame(genome, runSequences, restoredCurriculum));
+                populationNoise.push(new Array(POLICY_PARAM_COUNT).fill(0));
             }
         }
-        generation = state.stats.generation;
-        mutationRate = state.mutationRate || 0.02;
+
+        sigma = state.mutationRate || sigma;
         stagnationCount = state.stagnationCount || 0;
         leaderboard = state.leaderboard || [];
         lineageHistory = state.lineage || [];
         telemetryHistory = state.telemetryHistory || [];
         if (state.ghost) bestEverGhost = state.ghost;
 
+        policyMeanParams = averageParams(population.map(p => p.genome.policy.params));
+
         if (lineageHistory.length === 0 && population.length > 0) {
             recordLineage();
         }
 
-        console.log(`[Worker] Deep State Restored. Gen: ${generation}, Agents: ${populationSize}, Mutation: ${mutationRate.toFixed(3)}`);
+        console.log(`[Worker] Deep State Restored. Gen: ${generation}, Agents: ${populationSize}, Sigma: ${sigma.toFixed(3)}`);
         sendUpdate();
     }
 };

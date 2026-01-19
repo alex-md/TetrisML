@@ -24,13 +24,16 @@ const NeuralMapPage: React.FC<NeuralMapPageProps> = ({ selectedGenome, bestGenom
 
   const nodes = useMemo<NeuralNode[]>(() => {
     if (!target) return [];
-    const entries = Object.entries(target.weights);
+    const entries = Object.entries(target.summary.sensitivities)
+      .map(([label, value]) => ({ label, value: value as number }))
+      .sort((a, b) => Math.abs(b.value) - Math.abs(a.value))
+      .slice(0, 14);
     const radius = 180;
-    return entries.map(([label, value], index) => {
+    return entries.map((entry, index) => {
       const angle = (index / entries.length) * Math.PI * 2;
       return {
-        label,
-        value,
+        label: entry.label,
+        value: entry.value,
         x: Math.cos(angle) * radius,
         y: Math.sin(angle) * radius
       };
@@ -40,19 +43,14 @@ const NeuralMapPage: React.FC<NeuralMapPageProps> = ({ selectedGenome, bestGenom
   const influences = useMemo(() => {
     if (!target || !lineageNode) return [];
     const metrics = lineageNode.metrics;
-    const weights = target.weights;
+    const weights = target.summary.sensitivities;
     const pairs = [
-      { key: 'holes', weight: weights.holes, metric: metrics.holes },
-      { key: 'bumpiness', weight: weights.bumpiness, metric: metrics.bumpiness },
-      { key: 'maxHeight', weight: weights.maxHeight, metric: metrics.maxHeight },
-      { key: 'rowTransitions', weight: weights.rowTransitions, metric: metrics.rowTransitions },
-      { key: 'colTransitions', weight: weights.colTransitions, metric: metrics.colTransitions },
-      { key: 'wells', weight: weights.wells, metric: metrics.wells },
-      { key: 'holeDepth', weight: weights.holeDepth, metric: metrics.holeDepth },
-      { key: 'blockades', weight: weights.blockades, metric: metrics.blockades },
-      { key: 'landingHeight', weight: weights.landingHeight, metric: metrics.maxHeight },
-      { key: 'erodedCells', weight: weights.erodedCells, metric: metrics.completeLines },
-      { key: 'centerDev', weight: weights.centerDev, metric: metrics.bumpiness }
+      { key: 'holes', weight: weights.holes ?? 0, metric: metrics.holes },
+      { key: 'bumpiness', weight: weights.bumpiness ?? 0, metric: metrics.bumpiness },
+      { key: 'maxHeight', weight: weights.maxHeight ?? 0, metric: metrics.maxHeight },
+      { key: 'rowTransitions', weight: weights.rowTransitions ?? 0, metric: metrics.rowTransitions },
+      { key: 'colTransitions', weight: weights.colTransitions ?? 0, metric: metrics.colTransitions },
+      { key: 'wells', weight: weights.wells ?? 0, metric: metrics.wells }
     ];
     return pairs
       .map(pair => ({
@@ -170,16 +168,20 @@ const NeuralMapPage: React.FC<NeuralMapPageProps> = ({ selectedGenome, bestGenom
           <div>
             <div className="text-xs uppercase tracking-[0.25em] text-slate-500">Signal Summary</div>
             <p className="mt-2 text-slate-300 leading-relaxed">
-              Pulses are driven by live genome weights. Positive heuristics glow cyan, negative heuristics burn red.
+              Pulses are driven by live policy sensitivities. Positive signals glow cyan, negative signals burn red.
               Each node breathes on generation changes to visualize adaptation pressure.
             </p>
           </div>
 
           <div className="space-y-3">
-            {(target ? Object.entries(target.weights) : []).map(([key, value]) => (
+            {(target ? Object.entries(target.summary.sensitivities)
+              .map(([key, value]) => ({ key, value: value as number }))
+              .sort((a, b) => Math.abs(b.value) - Math.abs(a.value))
+              .slice(0, 12) : []).map(({ key, value }) => (
               <div key={key} className="flex items-center justify-between gap-4">
                 <div className="text-xs uppercase tracking-[0.2em] text-slate-500">{key}</div>
-                <div className={`text-sm font-mono ${(value as number) >= 0 ? 'text-cyan-300' : 'text-rose-300'}`}>
+                <div className={`text-sm font-mono ${value >= 0 ? 'text-cyan-300' : 'text-rose-300'}`}>
+                  {value.toFixed(2)}
                 </div>
               </div>
             ))}

@@ -1,32 +1,24 @@
 
+export interface PolicyNetwork {
+  inputSize: number;
+  hiddenSize: number;
+  params: number[];
+}
+
+export interface PolicySummary {
+  sensitivities: Record<string, number>;
+  exploration: number;
+}
+
 export interface Genome {
   id: string;
-  weights: {
-    height: number;
-    lines: number;
-    holes: number;
-    bumpiness: number;
-    // New Heuristics
-    maxHeight: number;      // Penalize tall columns
-    rowTransitions: number; // Penalize unconnected blocks horizontally
-    colTransitions: number; // Penalize unconnected blocks vertically
-    wells: number;          // Penalize deep 1-wide gaps
-    holeDepth: number;      // Penalize blocks stacked on top of holes
-    blockades: number;      // Penalize number of blocks covering holes
-    landingHeight: number;  // Penalize placing pieces high up
-    erodedCells: number;    // Reward clearing lines with the active piece
-    centerDev: number;      // Penalize playing on edges (encourage center play)
-  };
-  traits: {
-    reactionSpeed: number; // 0.0 to 1.0 (Higher is faster)
-    foresight: number;     // 0.0 to 1.0 (Higher likelihood of 2-step lookahead)
-    anxiety: number;       // 0.0 to 1.0 (Higher likelihood of random panic drops)
-  };
+  policy: PolicyNetwork;
+  summary: PolicySummary;
   generation: number;
   fitness: number;
   color: string;
   parents: string[]; // IDs of parents
-  bornMethod: 'elite' | 'crossover' | 'random' | 'mutation' | 'god-child';
+  bornMethod: 'seed' | 'es-sample' | 'elite' | 'imported';
 }
 
 export interface AgentState {
@@ -100,11 +92,12 @@ export interface LineageNode {
     wells: number;
     holeDepth: number;
     blockades: number;
+    columnHeights: number[];
+    holesByColumn: number[];
   };
-  traits: Genome['traits'];
-  weights: Genome['weights'];
+  summary: PolicySummary;
   color: string;
-  bornMethod: 'elite' | 'crossover' | 'random' | 'mutation' | 'god-child';
+  bornMethod: Genome['bornMethod'];
 }
 
 export interface LeaderboardEntry {
