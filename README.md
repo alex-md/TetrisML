@@ -23,6 +23,59 @@ A real-time Tetris genetic algorithm “aquarium.” Watch agents evolve, track 
 - `public/` — static assets
 - `dist/` — production build output (generated)
 
+## Evolutionary Algorithm & Fitness
+The simulation uses a gradient-free Evolutionary Strategy (ES) inspired by OpenAI's ES, optimized for neuroevolution in Tetris.
+
+### Algorithm Flow
+```mermaid
+graph TD
+    Start((Start Generation)) --> Init[Initialize Mean Parameters θ]
+    Init --> Sample[Sample Noise Vector ε ~ N]
+    Sample --> Pop[Create Population θ ± σ*ε]
+    Pop --> Simulation[Run Tetris Simulation]
+    Simulation --> Evaluate[Evaluate Fitness & Novelty]
+    Evaluate --> Rank[Rank-Based Normalization]
+    Rank --> Update[Update Mean θ using Weighted Gradient]
+    Update --> Archive[Update Novelty Archive]
+    Archive --> Stagnation{Stagnation?}
+    Stagnation -- Yes --> IncSigma[Increase exploration σ]
+    Stagnation -- No --> DecSigma[Decrease exploration σ]
+    IncSigma --> NextGen{Next Generation}
+    DecSigma --> NextGen
+    NextGen --> Sample
+```
+
+### Fitness Function
+The fitness is a weighted heuristic reward for stable play, normalized by piece count to avoid rewarding "do-nothing" survival:
+
+| Component | Weight | Purpose |
+| :--- | :--- | :--- |
+| **Lines Cleared** | +100 | Primary scoring objective |
+| **Tetris Bonus** | +1000 | Heavily reward strategy |
+| **Terminal Death** | -1500 | Discourage topping out |
+| **Holes** | -45 | Penalty for trapped empty space |
+| **Bumpiness** | -10 | Penalty for jagged board tops |
+| **Height** | -15 | Penalty (linear height aware) |
+| **Well Bonus** | +8 | Reward for tetris well maintenance |
+
+```typescript
+const computeFitness = (agent: TetrisGame) => {
+    const metrics = agent.calculateMetrics();
+    const score = agent.averageScore ?? agent.score;
+
+    let fitness = score 
+        + (agent.lines * 100) 
+        + (agent.tetrisCount * 1000) 
+        + (Math.min(12, metrics.wells) * 8)
+        - (metrics.holes * 45) 
+        - (metrics.bumpiness * 10) 
+        - (metrics.maxHeight * 15);
+
+    if (!agent.isAlive) fitness -= 1500;
+    return fitness / Math.max(1, agent.piecesSpawned);
+};
+```
+
 ## Local Development
 Frontend (root):
 ```bash

@@ -25,7 +25,7 @@ export const POLICY_FEATURES = [
 ];
 
 export const POLICY_INPUT_SIZE = POLICY_FEATURES.length;
-export const POLICY_HIDDEN_SIZE = 16;
+export const POLICY_HIDDEN_SIZE = 32;
 export const POLICY_PARAM_COUNT = (POLICY_INPUT_SIZE * POLICY_HIDDEN_SIZE) + POLICY_HIDDEN_SIZE + POLICY_HIDDEN_SIZE + 1;
 
 const clamp = (value: number, min = -1, max = 1) => Math.max(min, Math.min(max, value));

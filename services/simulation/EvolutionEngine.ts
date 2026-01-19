@@ -1,3 +1,4 @@
+import { Genome } from '@/types';
 import { GAMES_PER_GEN } from './constants';
 
 export function randomColor() {

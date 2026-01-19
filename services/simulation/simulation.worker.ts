@@ -47,7 +47,6 @@ const MAX_TELEMETRY_HISTORY = 60;
 const MAX_GHOST_FRAMES = 240;
 const NOVELTY_ARCHIVE_SIZE = 64;
 const NOVELTY_WEIGHT = 0.15;
-const PARAM_DECAY = 0.002;
 
 let lastLineageGen = 0;
 let policyMeanParams = createSeedPolicyParams();
@@ -140,17 +139,31 @@ const buildGenome = (params: number[], bornMethod: Genome['bornMethod'], parents
 const computeFitness = (agent: TetrisGame) => {
     const metrics = agent.calculateMetrics(agent.grid);
     const score = agent.averageScore ?? agent.score;
-    const lineBonus = agent.lines * 60;
-    const tetrisBonus = agent.tetrisCount * 450;
-    const holePenalty = metrics.holes * 40;
-    const bumpPenalty = metrics.bumpiness * 6;
-    const heightPenalty = metrics.maxHeight * 10;
-    const wellBonus = Math.min(12, metrics.wells) * 5;
-    const depthPenalty = metrics.holeDepth * 0.4;
-    const blockadePenalty = metrics.blockades * 0.6;
-    const cleanlinessBonus = Math.max(0, (BOARD_WIDTH * 2 - metrics.holes)) * 4;
 
-    return score + lineBonus + tetrisBonus + wellBonus + cleanlinessBonus - holePenalty - bumpPenalty - heightPenalty - depthPenalty - blockadePenalty;
+    // Weighted components
+    const lineBonus = agent.lines * 75;
+    const tetrisBonus = agent.tetrisCount * 600;
+    const wellBonus = Math.min(12, metrics.wells) * 8;
+
+    const holePenalty = metrics.holes * 55;
+    const bumpPenalty = metrics.bumpiness * 10;
+
+    // Exponential height penalty: makes agents panic as they get closer to the top
+    const heightPenalty = Math.pow(metrics.maxHeight, 1.4) * 12;
+
+    const depthPenalty = metrics.holeDepth * 0.8;
+    const blockadePenalty = metrics.blockades * 1.5;
+
+    let fitness = score + lineBonus + tetrisBonus + wellBonus
+        - holePenalty - bumpPenalty - heightPenalty - depthPenalty - blockadePenalty;
+
+    // Terminal penalty for topping out
+    if (!agent.isAlive) {
+        fitness -= 1500;
+    }
+
+    // Normalize by pieces placed
+    return fitness / Math.max(1, agent.piecesSpawned);
 };
 
 const computeNovelty = (signature: number[]) => {
@@ -200,7 +213,7 @@ const computeDiversity = (paramsList: number[][]) => {
     return Math.min(100, Math.round(mean * 40));
 };
 
-const createPopulation = (curriculumOverride?: { gravityScale: number; maxPieces: number; }) => {
+const createPopulation = (curriculumOverride?: { gravityScale: number; maxPieces: number; }, parentIds: string[] = []) => {
     population = [];
     populationNoise = [];
     runSequences = GA.generateRunSequences();
@@ -214,7 +227,7 @@ const createPopulation = (curriculumOverride?: { gravityScale: number; maxPieces
         for (const sign of signs) {
             if (population.length >= populationSize) break;
             const params = addScaled(policyMeanParams, noise, sigma * sign);
-            const genome = buildGenome(params, 'es-sample', []);
+            const genome = buildGenome(params, 'es-sample', parentIds);
             const agent = new TetrisGame(genome, runSequences, {
                 gravityScale: curriculum.gravityScale,
                 maxPieces: curriculum.maxPieces
@@ -266,7 +279,7 @@ function sendUpdate() {
     });
 
     const fitnessValues = population.map(p => computeFitness(p));
-    const maxFitness = Math.max(...fitnessValues, 0);
+    const maxFitness = Math.max(...fitnessValues);
     if (maxFitness > bestEverFitness) bestEverFitness = maxFitness;
 
     const avgFitness = fitnessValues.reduce((a, b) => a + b, 0) / Math.max(1, fitnessValues.length);
@@ -444,7 +457,7 @@ function evolve() {
     }
 
     for (let p = 0; p < policyMeanParams.length; p++) {
-        policyMeanParams[p] = policyMeanParams[p] * (1 - PARAM_DECAY) + (stepSize / (population.length * sigma)) * grad[p];
+        policyMeanParams[p] += (stepSize / (population.length * sigma)) * grad[p];
     }
 
     const avgFitness = fitnesses.reduce((sum, v) => sum + v, 0) / Math.max(1, fitnesses.length);
@@ -469,9 +482,15 @@ function evolve() {
         noveltyArchive = noveltyArchive.slice(noveltyArchive.length - NOVELTY_ARCHIVE_SIZE);
     }
 
+    const bestAgent = population.reduce((best, curr) => {
+        const currFit = computeFitness(curr);
+        const bestFit = best ? computeFitness(best) : -Infinity;
+        return currFit > bestFit ? curr : best;
+    }, population[0]);
+
     const bestScore = Math.max(...population.map(p => p.score), 0);
     generation++;
-    createPopulation(getCurriculum(bestScore));
+    createPopulation(getCurriculum(bestScore), bestAgent ? [bestAgent.genome.id] : []);
     recordLineage();
 }
 

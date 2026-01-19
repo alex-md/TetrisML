@@ -240,19 +240,44 @@ export class TetrisGame {
             return { move, simGrid: simState.grid, score, landing: simState.landingHeight };
         });
 
+        // Refined Lookahead: Evaluate top 5 moves for the current piece by looking at the next piece
         candidates.sort((a, b) => b.score - a.score);
+        const topCandidates = candidates.slice(0, 5);
 
-        let bestScore = -Infinity;
-        let bestTarget = null;
+        for (const cand of topCandidates) {
+            const nextSpawnPiece = {
+                shape: this.nextPiece.shape,
+                color: this.nextPiece.color,
+                x: Math.floor((BOARD_WIDTH - this.nextPiece.shape[0].length) / 2),
+                y: 0
+            };
 
-        for (const cand of candidates) {
-            const tieBreaker = -cand.landing * 0.001;
-            const finalScore = cand.score + tieBreaker;
-            if (finalScore > bestScore) {
-                bestScore = finalScore;
-                bestTarget = cand.move;
+            const nextMoves = this.getPossibleMoves(nextSpawnPiece, cand.simGrid);
+            if (nextMoves.length > 0) {
+                let bestNextScore = -Infinity;
+                for (const nm of nextMoves) {
+                    const nSim = this.getSimulatedGrid(cand.simGrid, nm);
+                    const nMetrics = this.calculateMetrics(nSim.grid);
+                    const nFeatures = this.buildFeatureVector(nMetrics, {
+                        linesCleared: nSim.linesCleared,
+                        landingHeight: nSim.landingHeight,
+                        erodedCells: nSim.erodedCells,
+                        centerDev: Math.abs((nm.x + nm.shape[0].length / 2) - (BOARD_WIDTH / 2))
+                    });
+                    const nScore = forwardPolicy(this.genome.policy.params, nFeatures);
+                    if (nScore > bestNextScore) bestNextScore = nScore;
+                }
+                // Add discounted future score
+                cand.score += bestNextScore * 0.85;
+            } else {
+                // Topping out on the next piece is very bad
+                cand.score -= 500;
             }
         }
+
+        // Re-sort after looking ahead
+        topCandidates.sort((a, b) => b.score - a.score);
+        const bestTarget = topCandidates[0]?.move || candidates[0]?.move;
 
         if (bestTarget) {
             this.generatePath(bestTarget);
