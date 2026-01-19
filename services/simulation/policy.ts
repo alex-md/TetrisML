@@ -26,7 +26,8 @@ export const POLICY_FEATURES = [
 
 export const POLICY_INPUT_SIZE = POLICY_FEATURES.length;
 export const POLICY_HIDDEN_SIZE = 32;
-export const POLICY_PARAM_COUNT = (POLICY_INPUT_SIZE * POLICY_HIDDEN_SIZE) + POLICY_HIDDEN_SIZE + POLICY_HIDDEN_SIZE + 1;
+export const POLICY_OUTPUT_SIZE = 2; // [Move Score, Execution Speed]
+export const POLICY_PARAM_COUNT = (POLICY_INPUT_SIZE * POLICY_HIDDEN_SIZE) + POLICY_HIDDEN_SIZE + (POLICY_HIDDEN_SIZE * POLICY_OUTPUT_SIZE) + POLICY_OUTPUT_SIZE;
 
 const clamp = (value: number, min = -1, max = 1) => Math.max(min, Math.min(max, value));
 
@@ -65,9 +66,13 @@ export const createSeedPolicyParams = (rng = Math.random) => {
             params[w1Offset + h * inputSize + i] = (rng() - 0.5) * 0.2;
         }
         params[b1Offset + h] = (rng() - 0.5) * 0.1;
+        // Hidden to Output 0 (Score)
         params[w2Offset + h] = (rng() - 0.5) * 0.2;
+        // Hidden to Output 1 (Speed)
+        params[w2Offset + hiddenSize + h] = (rng() - 0.5) * 0.2;
     }
-    params[b2Offset] = 0;
+    params[b2Offset] = 0; // Bias Score
+    params[b2Offset + 1] = 0; // Bias Speed
 
     // Seed a stable baseline in hidden unit 0.
     for (let i = 0; i < inputSize; i++) {
@@ -86,16 +91,18 @@ export const createRandomPolicyParams = (rng = Math.random) => {
     return params;
 };
 
-export const forwardPolicy = (params: number[], inputs: number[]) => {
+export const forwardPolicy = (params: number[], inputs: number[]): { score: number; speed: number } => {
     const inputSize = POLICY_INPUT_SIZE;
     const hiddenSize = POLICY_HIDDEN_SIZE;
 
     const w1Offset = 0;
     const b1Offset = w1Offset + inputSize * hiddenSize;
     const w2Offset = b1Offset + hiddenSize;
-    const b2Offset = w2Offset + hiddenSize;
+    const b2Offset = w2Offset + hiddenSize * 2;
 
-    let output = params[b2Offset];
+    let score = params[b2Offset];
+    let speed = params[b2Offset + 1];
+
     for (let h = 0; h < hiddenSize; h++) {
         let sum = params[b1Offset + h];
         const base = w1Offset + h * inputSize;
@@ -103,9 +110,15 @@ export const forwardPolicy = (params: number[], inputs: number[]) => {
             sum += params[base + i] * inputs[i];
         }
         const activation = Math.tanh(sum);
-        output += params[w2Offset + h] * activation;
+        score += params[w2Offset + h] * activation;
+        speed += params[w2Offset + hiddenSize + h] * activation;
     }
-    return output;
+
+    return {
+        score,
+        // Speed is squashed to [0, 1] range via sigmoid-like mapping or tanh
+        speed: (Math.tanh(speed) + 1) / 2
+    };
 };
 
 export const summarizePolicy = (params: number[], exploration: number): PolicySummary => {

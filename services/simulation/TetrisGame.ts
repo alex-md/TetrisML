@@ -30,21 +30,21 @@ export class TetrisGame {
     currentRunSequence: number[];
 
     currentPiece: any;
-    nextPiece: any;
+    nextPiece: any; // Keep this from original
+    actionQueue: string[] = [];
+    hasPlanned: boolean = false;
+    lockTimer: number = 0;
+    lockDelay: number = 20;
+    lockResets: number = 0;
+    maxLockResets: number = 10;
+    gravityTimer: number = 0;
+    gravityThreshold: number = 30;
+    reactionTimer: number = 0;
+    totalTicks: number = 0;
+    currentSpeed: number = 0.5; // From policy
 
-    actionQueue: string[];
-    hasPlanned: boolean;
-    reactionTimer: number;
-
-    gravityTimer: number;
-    gravityThreshold: number;
     gravityScale: number;
     maxPiecesPerRun: number;
-
-    lockDelay: number;
-    lockTimer: number;
-    lockResets: number;
-    maxLockResets: number;
 
     constructor(genome: Genome, runSequences: number[][], options?: { gravityScale?: number; maxPieces?: number; }) {
         this.genome = genome;
@@ -157,6 +157,7 @@ export class TetrisGame {
 
     tick() {
         if (!this.isAlive) return;
+        this.totalTicks++;
 
         const onGround = this.checkCollision(this.grid, this.currentPiece.shape, this.currentPiece.x, this.currentPiece.y + 1);
 
@@ -188,6 +189,8 @@ export class TetrisGame {
         if (this.actionQueue.length > 0) {
             const actionArr = this.actionQueue.shift();
             if (actionArr) this.executeAction(actionArr);
+            // High-speed reaction: 0 delay for fast pieces, 1 tick delay for slow pieces
+            this.reactionTimer = this.currentSpeed > 0.8 ? 0 : 1;
         }
     }
 
@@ -198,6 +201,7 @@ export class TetrisGame {
         switch (action) {
             case 'L': success = this.move(-1, 0); break;
             case 'R': success = this.move(1, 0); break;
+            case 'D': success = this.move(0, 1); break;
             case 'ROT': success = this.rotateCW(); break;
             case 'DROP': this.hardDrop(); break;
         }
@@ -212,37 +216,29 @@ export class TetrisGame {
     }
 
     planBestMove() {
-        const possibleMoves = this.getPossibleMoves(this.currentPiece, this.grid);
-        if (possibleMoves.length === 0) return;
+        // Find all physically reachable moves and their button-press paths
+        const candidates = this.getPossibleMoves(this.currentPiece, this.grid);
+        if (candidates.length === 0) return;
 
-        const mobilityBudget = Math.max(6, this.gravityThreshold + 12);
-
-        const reachableMoves = possibleMoves.filter(m => {
-            const rotCost = m.rot * 1.5;
-            const moveCost = Math.abs(m.x - this.currentPiece.x);
-            const totalCost = rotCost + moveCost;
-            return totalCost <= mobilityBudget;
-        });
-
-        const candidatesToEval = reachableMoves.length > 0 ? reachableMoves : possibleMoves;
-
-        let candidates = candidatesToEval.map(move => {
-            const simState = this.getSimulatedGrid(this.grid, move);
+        // Evaluate top candidates using our policy (1-piece and filtered 2-piece)
+        let evaluated = candidates.map(cand => {
+            const simState = this.getSimulatedGrid(this.grid, cand);
             const metrics = this.calculateMetrics(simState.grid);
             const featureVector = this.buildFeatureVector(metrics, {
                 linesCleared: simState.linesCleared,
                 landingHeight: simState.landingHeight,
                 erodedCells: simState.erodedCells,
-                centerDev: Math.abs((move.x + move.shape[0].length / 2) - (BOARD_WIDTH / 2))
+                centerDev: Math.abs((cand.x + cand.shape[0].length / 2) - (BOARD_WIDTH / 2))
             });
-            const score = forwardPolicy(this.genome.policy.params, featureVector);
+            const evalResult = forwardPolicy(this.genome.policy.params, featureVector);
+            const score = evalResult.score;
 
-            return { move, simGrid: simState.grid, score, landing: simState.landingHeight };
+            return { ...cand, score, speed: evalResult.speed, landing: simState.landingHeight, simGrid: simState.grid };
         });
 
-        // Refined Lookahead: Evaluate top 5 moves for the current piece by looking at the next piece
-        candidates.sort((a, b) => b.score - a.score);
-        const topCandidates = candidates.slice(0, 5);
+        // 2-Piece Lookahead for top 5 candidates
+        evaluated.sort((a, b) => b.score - a.score);
+        const topCandidates = evaluated.slice(0, 5);
 
         for (const cand of topCandidates) {
             const nextSpawnPiece = {
@@ -264,38 +260,25 @@ export class TetrisGame {
                         erodedCells: nSim.erodedCells,
                         centerDev: Math.abs((nm.x + nm.shape[0].length / 2) - (BOARD_WIDTH / 2))
                     });
-                    const nScore = forwardPolicy(this.genome.policy.params, nFeatures);
-                    if (nScore > bestNextScore) bestNextScore = nScore;
+                    const nEval = forwardPolicy(this.genome.policy.params, nFeatures);
+                    if (nEval.score > bestNextScore) bestNextScore = nEval.score;
                 }
-                // Add discounted future score
                 cand.score += bestNextScore * 0.85;
             } else {
-                // Topping out on the next piece is very bad
                 cand.score -= 500;
             }
         }
 
-        // Re-sort after looking ahead
+        // Final selection
         topCandidates.sort((a, b) => b.score - a.score);
-        const bestTarget = topCandidates[0]?.move || candidates[0]?.move;
+        const best = topCandidates[0] || evaluated[0];
 
-        if (bestTarget) {
-            this.generatePath(bestTarget);
+        if (best) {
+            this.actionQueue = [...best.path, 'DROP'];
+            this.currentSpeed = best.speed; // Adopt the speed decided for this move
         }
     }
 
-    generatePath(target: any) {
-        for (let i = 0; i < target.rot; i++) this.actionQueue.push('ROT');
-
-        const dx = target.x - this.currentPiece.x;
-        const steps = Math.abs(dx);
-        const dir = dx < 0 ? 'L' : 'R';
-
-        for (let i = 0; i < steps; i++) {
-            this.actionQueue.push(dir);
-        }
-        this.actionQueue.push('DROP');
-    }
 
     getSimulatedGrid(baseGrid: number[][], move: any) {
         const simGrid = cloneGrid(baseGrid);
@@ -393,6 +376,7 @@ export class TetrisGame {
         const visited = new Set();
         const queue = [];
 
+        // All 4 rotation shapes for this piece type
         const rotations = [];
         let r = piece.shape;
         for (let i = 0; i < 4; i++) {
@@ -400,42 +384,58 @@ export class TetrisGame {
             r = this.rotate(r);
         }
 
-        const startNode = { x: piece.x, y: piece.y, rot: 0 };
+        const startNode = { x: piece.x, y: piece.y, rot: 0, path: [] as string[] };
         queue.push(startNode);
         visited.add(`${startNode.x},${startNode.y},${startNode.rot}`);
 
         while (queue.length > 0) {
             const item = queue.shift();
             if (!item) continue;
-            const { x, y, rot } = item;
+            const { x, y, rot, path } = item;
             const shape = rotations[rot];
 
-            const moves = [{ dx: -1, dy: 0 }, { dx: 1, dy: 0 }, { dx: 0, dy: 1 }];
-            let canMoveDown = false;
+            // 1. Horizontal/Down Moves
+            const actions = [
+                { dx: -1, dy: 0, key: 'L' },
+                { dx: 1, dy: 0, key: 'R' },
+                { dx: 0, dy: 1, key: 'D' }
+            ];
 
-            for (let m of moves) {
-                if (!this.checkCollision(grid, shape, x + m.dx, y + m.dy)) {
-                    const key = `${x + m.dx},${y + m.dy},${rot}`;
+            let canMoveDown = false;
+            for (let a of actions) {
+                if (!this.checkCollision(grid, shape, x + a.dx, y + a.dy)) {
+                    const key = `${x + a.dx},${y + a.dy},${rot}`;
                     if (!visited.has(key)) {
                         visited.add(key);
-                        queue.push({ x: x + m.dx, y: y + m.dy, rot });
+                        queue.push({ x: x + a.dx, y: y + a.dy, rot, path: [...path, a.key] });
                     }
-                    if (m.dy === 1) canMoveDown = true;
+                    if (a.dy === 1) canMoveDown = true;
                 }
             }
 
+            // 2. Rotation Moves (include basic wall kicks)
             const nextRot = (rot + 1) % 4;
             const nextShape = rotations[nextRot];
-            if (!this.checkCollision(grid, nextShape, x, y)) {
-                const key = `${x},${y},${nextRot}`;
-                if (!visited.has(key)) {
-                    visited.add(key);
-                    queue.push({ x: x, y: y, rot: nextRot });
+
+            // Try standard rotation, then 1-step wall kicks
+            const kickOffsets = [[0, 0], [-1, 0], [1, 0], [0, -1]];
+            for (const [kx, ky] of kickOffsets) {
+                if (!this.checkCollision(grid, nextShape, x + kx, y + ky)) {
+                    const key = `${x + kx},${y + ky},${nextRot}`;
+                    if (!visited.has(key)) {
+                        visited.add(key);
+                        const kickPath = [...path];
+                        if (kx !== 0 || ky !== 0) kickPath.push('ROT'); // Simplified as ROT for logic
+                        else kickPath.push('ROT');
+                        queue.push({ x: x + kx, y: y + ky, rot: nextRot, path: kickPath });
+                    }
+                    break; // Use the first successful kick
                 }
             }
 
+            // A move is "final" if the piece cannot move down anymore from this position
             if (!canMoveDown) {
-                reachable.push({ x, y, shape: rotations[rot], rot, color: piece.color });
+                reachable.push({ x, y, shape: rotations[rot], rot, color: piece.color, path });
             }
         }
         return reachable;
@@ -481,16 +481,13 @@ export class TetrisGame {
     rotateCW() {
         if (!this.isAlive) return false;
         const newShape = this.rotate(this.currentPiece.shape);
-        if (!this.checkCollision(this.grid, newShape, this.currentPiece.x, this.currentPiece.y)) {
-            this.currentPiece.shape = newShape;
-            return true;
-        } else {
-            if (!this.checkCollision(this.grid, newShape, this.currentPiece.x - 1, this.currentPiece.y)) {
-                this.currentPiece.x -= 1;
-                this.currentPiece.shape = newShape;
-                return true;
-            } else if (!this.checkCollision(this.grid, newShape, this.currentPiece.x + 1, this.currentPiece.y)) {
-                this.currentPiece.x += 1;
+
+        // Basic SRS-style Wall Kicks: Try (0,0), then (-1,0), (1,0), (0,-1)
+        const kicks = [[0, 0], [-1, 0], [1, 0], [0, -1], [-2, 0], [2, 0]];
+        for (const [kx, ky] of kicks) {
+            if (!this.checkCollision(this.grid, newShape, this.currentPiece.x + kx, this.currentPiece.y + ky)) {
+                this.currentPiece.x += kx;
+                this.currentPiece.y += ky;
                 this.currentPiece.shape = newShape;
                 return true;
             }

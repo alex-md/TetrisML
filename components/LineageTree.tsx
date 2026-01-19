@@ -169,9 +169,9 @@ const LineageTree: React.FC<Props> = ({ history }) => {
                 <div className="absolute top-4 right-4 bg-slate-800 p-4 rounded-lg border border-slate-600 shadow-xl z-20 w-52 pointer-events-none">
                     <div className="flex items-center gap-2 mb-2 border-b border-slate-700 pb-2">
                         <span className={`w-2 h-2 rounded-full ${hoveredNode.bornMethod === 'elite' ? 'bg-amber-400' :
-                                hoveredNode.bornMethod === 'es-sample' ? 'bg-cyan-400' :
-                                    hoveredNode.bornMethod === 'seed' ? 'bg-slate-400' :
-                                        'bg-purple-400'
+                            hoveredNode.bornMethod === 'es-sample' ? 'bg-cyan-400' :
+                                hoveredNode.bornMethod === 'seed' ? 'bg-slate-400' :
+                                    'bg-purple-400'
                             }`} />
                         <span className="font-bold text-white uppercase text-[10px] tracking-wider">{hoveredNode.bornMethod}</span>
                     </div>
@@ -188,7 +188,15 @@ const LineageTree: React.FC<Props> = ({ history }) => {
                             <span>Score:</span>
                             <span className="font-mono text-emerald-400">{Math.floor(hoveredNode.score)}</span>
                         </div>
+                        <div className="flex justify-between border-t border-slate-700 pt-1 mt-1">
+                            <span>Throughput:</span>
+                            <span className="font-mono text-amber-400">{(hoveredNode.metrics.throughput ?? 0).toFixed(2)} p/s</span>
+                        </div>
                         <div className="flex justify-between">
+                            <span>Efficiency:</span>
+                            <span className="font-mono text-purple-400">{(hoveredNode.metrics.efficiency ?? 0).toFixed(1)}%</span>
+                        </div>
+                        <div className="flex justify-between border-t border-slate-700 pt-1 mt-1">
                             <span>Lineage:</span>
                             <span className="font-mono text-slate-500">{hoveredNode.parents.length > 0 ? 'Connected' : 'Origin'}</span>
                         </div>

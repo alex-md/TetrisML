@@ -3,6 +3,8 @@
 A real-time Tetris genetic algorithm “aquarium.” Watch agents evolve, track lineage and telemetry, and persist progress across sessions.
 
 ## Features
+-   **Realistic Movement Engine**: Uses BFS pathfinding and sequential action queues. No piece teleportation.
+-   **Enhanced Strategic Depth**: Filtered 2nd-piece lookahead and deep neural network (32-node hidden layer).
 - Live simulation with population stats, diversity tracking, and auto-tuning mutation.
 - Dedicated Web Worker keeps the UI responsive during heavy evolution cycles.
 - Visual tooling: neural maps, telemetry, lineage tree, timeline snapshots, and high scores.

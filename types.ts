@@ -94,6 +94,8 @@ export interface LineageNode {
     blockades: number;
     columnHeights: number[];
     holesByColumn: number[];
+    throughput?: number;
+    efficiency?: number;
   };
   summary: PolicySummary;
   color: string;

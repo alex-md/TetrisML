@@ -27,9 +27,10 @@ let generation = 1;
 let populationSize = POPULATION_SIZE;
 let sigma = 0.28;
 let stepSize = 0.35;
-const speed = 1;
+const speed = 1; // 1:1 move visibility
 let isPaused = false;
 let lastUpdateTime = 0;
+let lastHeavyUpdateTime = 0;
 
 let lineageHistory: LineageNode[][] = [];
 let leaderboard: LeaderboardEntry[] = [];
@@ -138,32 +139,45 @@ const buildGenome = (params: number[], bornMethod: Genome['bornMethod'], parents
 
 const computeFitness = (agent: TetrisGame) => {
     const metrics = agent.calculateMetrics(agent.grid);
-    const score = agent.averageScore ?? agent.score;
+    const rawScore = agent.averageScore ?? agent.score;
 
-    // Weighted components
-    const lineBonus = agent.lines * 75;
-    const tetrisBonus = agent.tetrisCount * 600;
-    const wellBonus = Math.min(12, metrics.wells) * 8;
+    // Weighted components (aligned with balanced_fitness_plan.md)
+    const lineClearBonus = agent.lines * 100;
+    const tetrisBonus = agent.tetrisCount * 1000;
+    const heightPenalty = metrics.maxHeight * 15; // Linear penalty
 
-    const holePenalty = metrics.holes * 55;
-    const bumpPenalty = metrics.bumpiness * 10;
+    // Final Fitness Shaping
+    let fitness = rawScore;
+    fitness -= heightPenalty;
+    fitness += lineClearBonus;
+    fitness += tetrisBonus;
+    if (!agent.isAlive) fitness -= 1500;
 
-    // Exponential height penalty: makes agents panic as they get closer to the top
-    const heightPenalty = Math.pow(metrics.maxHeight, 1.4) * 12;
+    // Normalization & Intelligence Metrics
+    const pieces = Math.max(1, agent.piecesSpawned);
+    const normalizedFitness = fitness / pieces;
 
-    const depthPenalty = metrics.holeDepth * 0.8;
-    const blockadePenalty = metrics.blockades * 1.5;
+    // Throughput Bonus: Reward pieces per second (60 ticks = 1s approx)
+    const piecesPerSecond = (agent.piecesSpawned / (Math.max(1, agent.totalTicks) / 60));
+    const throughputBonus = piecesPerSecond * 2.0;
 
-    let fitness = score + lineBonus + tetrisBonus + wellBonus
-        - holePenalty - bumpPenalty - heightPenalty - depthPenalty - blockadePenalty;
+    // Scoring Density: Reward lines per piece
+    const scoringDensity = (agent.lines / pieces) * 100;
 
-    // Terminal penalty for topping out
-    if (!agent.isAlive) {
-        fitness -= 1500;
-    }
+    const finalFitness = normalizedFitness + throughputBonus + scoringDensity;
 
-    // Normalize by pieces placed
-    return fitness / Math.max(1, agent.piecesSpawned);
+    return {
+        fitness: finalFitness,
+        metrics: {
+            ...metrics,
+            score: agent.score,
+            lines: agent.lines,
+            pieces: agent.piecesSpawned,
+            avgHeight: metrics.aggregateHeight / pieces,
+            throughput: piecesPerSecond,
+            efficiency: scoringDensity
+        }
+    };
 };
 
 const computeNovelty = (signature: number[]) => {
@@ -240,7 +254,10 @@ const createPopulation = (curriculumOverride?: { gravityScale: number; maxPieces
 
 function captureGhostFrame(agent: TetrisGame) {
     if (!bestEverGhost || agent.genome.id !== ghostTargetId) return;
-    if (bestEverGhost.frames.length >= MAX_GHOST_FRAMES) return;
+
+    // Throttle frame capture so we don't spam memory with identical frames
+    const lastFrame = bestEverGhost.frames[bestEverGhost.frames.length - 1];
+    if (lastFrame && !agent.currentPiece) return;
 
     const frame: GhostFrame = {
         grid: agent.grid.map(row => [...row])
@@ -256,12 +273,19 @@ function captureGhostFrame(agent: TetrisGame) {
     }
 
     bestEverGhost.frames.push(frame);
+    if (bestEverGhost.frames.length > MAX_GHOST_FRAMES) bestEverGhost.frames.shift();
 }
 
-function sendUpdate() {
-    if (lineageHistory.length === 0 || lastLineageGen !== generation) {
+function sendUpdate(forceFull = false) {
+    const isNewGen = lastLineageGen !== generation;
+
+    if (lineageHistory.length === 0 || isNewGen) {
         recordLineage();
     }
+
+    const now = Date.now();
+    const isHeavyUpdate = forceFull || isNewGen || (now - lastHeavyUpdateTime > 2000);
+    if (isHeavyUpdate) lastHeavyUpdateTime = now;
 
     const agents: AgentState[] = population.map(p => {
         p.genome.summary = summarizePolicy(p.genome.policy.params, sigma);
@@ -278,7 +302,8 @@ function sendUpdate() {
         };
     });
 
-    const fitnessValues = population.map(p => computeFitness(p));
+    const fitnessData = population.map(p => computeFitness(p));
+    const fitnessValues = fitnessData.map(d => d.fitness);
     const maxFitness = Math.max(...fitnessValues);
     if (maxFitness > bestEverFitness) bestEverFitness = maxFitness;
 
@@ -305,12 +330,13 @@ function sendUpdate() {
         payload: {
             agents,
             stats,
-            lineage: lineageHistory,
-            leaderboard,
+            // Only send heavy arrays periodically or on gen change
+            lineage: isHeavyUpdate ? lineageHistory : undefined,
+            leaderboard: isHeavyUpdate ? leaderboard : undefined,
             mutationRate: sigma,
             stagnationCount,
-            ghost: bestEverGhost || undefined,
-            telemetryHistory
+            ghost: isHeavyUpdate ? (bestEverGhost || undefined) : undefined,
+            telemetryHistory: isHeavyUpdate ? telemetryHistory : undefined
         }
     });
 }
@@ -333,19 +359,19 @@ function initPopulation() {
 
 function recordLineage() {
     const nodes: LineageNode[] = population.map(p => {
-        const metrics = p.calculateMetrics(p.grid);
+        const fitResult = computeFitness(p);
         p.genome.summary = summarizePolicy(p.genome.policy.params, sigma);
         return {
             id: p.genome.id,
             generation: p.genome.generation,
             parents: p.genome.parents,
-            fitness: computeFitness(p),
+            fitness: fitResult.fitness,
             score: p.score,
             lines: p.lines,
             level: p.level,
             avgScore: p.averageScore || p.score,
             stress: p.calculateStress(),
-            metrics,
+            metrics: fitResult.metrics,
             summary: p.genome.summary,
             color: p.genome.color,
             bornMethod: p.genome.bornMethod
@@ -439,7 +465,7 @@ function updateLeaderboard() {
 function evolve() {
     updateLeaderboard();
 
-    const fitnesses = population.map(agent => computeFitness(agent));
+    const fitnesses = population.map(agent => computeFitness(agent).fitness);
     const signatures = population.map(agent => agent.getBehaviorSignature());
     const novelties = signatures.map(sig => computeNovelty(sig));
 
@@ -501,8 +527,8 @@ function evolve() {
     }
 
     const bestAgent = population.reduce((best, curr) => {
-        const currFit = computeFitness(curr);
-        const bestFit = best ? computeFitness(best) : -Infinity;
+        const currFit = computeFitness(curr).fitness;
+        const bestFit = best ? computeFitness(best).fitness : -Infinity;
         return currFit > bestFit ? curr : best;
     }, population[0]);
 
@@ -559,12 +585,12 @@ setInterval(() => {
         }
     }
 
-    const reportInterval = speed > 1 ? 2000 : 0;
+    const reportInterval = 16; // Cap UI at ~60fps to prevent message saturation
     if (now - lastUpdateTime >= reportInterval) {
         lastUpdateTime = now;
         sendUpdate();
     }
-}, 20);
+}, 4); // High-speed internal simulation (250 ticks/s)
 
 self.onmessage = (e: MessageEvent<MainMessage>) => {
     const { type } = e.data;
