@@ -75,8 +75,8 @@ export function crossover(g1: Genome, g2: Genome, generation: number): Genome {
     };
 }
 
-export function mutate(genome: Genome, mutationRate: number) {
-    const sigma = 0.05; // Gaussian noise standard deviation
+export function mutate(genome: Genome, mutationRate: number, sigmaScale = 1) {
+    const sigma = 0.05 * sigmaScale; // Gaussian noise standard deviation
     const sparseProbability = 0.5; // Only mutate 50% of weights at a time
 
     const gausRandom = () => {

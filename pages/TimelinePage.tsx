@@ -40,8 +40,8 @@ const TimelinePage: React.FC<TimelinePageProps> = ({ stats, fitnessHistory, snap
   const telemetrySeries = useMemo(() => {
     return telemetryHistory.map(entry => ({
       gen: entry.generation,
-      avgScore: Math.round(entry.avgScore),
-      avgLines: Number(entry.avgLines.toFixed(1))
+      avgScore: Math.round(Number.isFinite(entry.avgScore) ? entry.avgScore : 0),
+      avgLines: Number((Number.isFinite(entry.avgLines) ? entry.avgLines : 0).toFixed(1))
     }));
   }, [telemetryHistory]);
 

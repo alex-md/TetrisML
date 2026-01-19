@@ -29,6 +29,106 @@ let lastLineageGen = 0;
 
 const cloneGrid = (grid: number[][]) => grid.map(row => [...row]);
 
+const WEIGHT_RANGES: Record<keyof Genome['weights'], [number, number]> = {
+    height: [-0.5, 0],
+    lines: [0.5, 1],
+    holes: [-0.8, -0.4],
+    bumpiness: [-0.3, 0],
+    maxHeight: [-0.5, 0],
+    rowTransitions: [-0.5, 0],
+    colTransitions: [-0.5, 0],
+    wells: [-0.5, 0],
+    holeDepth: [-0.5, 0],
+    blockades: [-0.5, 0],
+    landingHeight: [-0.3, 0],
+    erodedCells: [0.2, 1],
+    centerDev: [-0.1, 0.1]
+};
+
+const TRAIT_RANGES: Record<keyof Genome['traits'], [number, number]> = {
+    reactionSpeed: [0, 1],
+    foresight: [0, 1],
+    anxiety: [0, 1]
+};
+
+const clamp01 = (value: number) => Math.max(0, Math.min(1, value));
+
+const normalizeValue = (value: number, range: [number, number]) => {
+    const [min, max] = range;
+    if (max === min) return 0;
+    return clamp01((value - min) / (max - min));
+};
+
+const genomeToVector = (genome: Genome) => {
+    const vector: number[] = [];
+    (Object.keys(WEIGHT_RANGES) as (keyof Genome['weights'])[]).forEach(key => {
+        vector.push(normalizeValue(genome.weights[key], WEIGHT_RANGES[key]));
+    });
+    (Object.keys(TRAIT_RANGES) as (keyof Genome['traits'])[]).forEach(key => {
+        vector.push(normalizeValue(genome.traits[key], TRAIT_RANGES[key]));
+    });
+    return vector;
+};
+
+const genomeDistance = (a: Genome, b: Genome) => {
+    const va = genomeToVector(a);
+    const vb = genomeToVector(b);
+    let sum = 0;
+    for (let i = 0; i < va.length; i++) {
+        const diff = va[i] - vb[i];
+        sum += diff * diff;
+    }
+    return Math.sqrt(sum / va.length);
+};
+
+const computeDiversity = (pop: TetrisGame[]) => {
+    if (pop.length < 2) return 0;
+    let sum = 0;
+    let pairs = 0;
+    for (let i = 0; i < pop.length; i++) {
+        for (let j = i + 1; j < pop.length; j++) {
+            sum += genomeDistance(pop[i].genome, pop[j].genome);
+            pairs++;
+        }
+    }
+    const mean = pairs === 0 ? 0 : sum / pairs;
+    return Math.min(100, mean * 100);
+};
+
+const pickDistantMate = (base: TetrisGame, pool: TetrisGame[], sampleSize = 6) => {
+    let best = pool[Math.floor(Math.random() * pool.length)];
+    let bestDist = genomeDistance(base.genome, best.genome);
+    for (let i = 0; i < sampleSize; i++) {
+        const candidate = pool[Math.floor(Math.random() * pool.length)];
+        if (candidate.genome.id === base.genome.id) continue;
+        const dist = genomeDistance(base.genome, candidate.genome);
+        if (dist > bestDist) {
+            bestDist = dist;
+            best = candidate;
+        }
+    }
+    return best;
+};
+
+const randomizeGenomeSlice = (genome: Genome, probability: number) => {
+    let changed = false;
+    (Object.keys(WEIGHT_RANGES) as (keyof Genome['weights'])[]).forEach(key => {
+        if (Math.random() < probability) {
+            const [min, max] = WEIGHT_RANGES[key];
+            genome.weights[key] = min + Math.random() * (max - min);
+            changed = true;
+        }
+    });
+    (Object.keys(TRAIT_RANGES) as (keyof Genome['traits'])[]).forEach(key => {
+        if (Math.random() < probability) {
+            const [min, max] = TRAIT_RANGES[key];
+            genome.traits[key] = min + Math.random() * (max - min);
+            changed = true;
+        }
+    });
+    if (changed) genome.bornMethod = 'diversify';
+};
+
 const cloneCurrentPiece = (piece: any) => ({
     shape: piece.shape.map((row: number[]) => [...row]),
     x: piece.x,
@@ -56,12 +156,7 @@ function sendUpdate() {
         recordLineage();
     }
     const fitnessScore = (agent: TetrisGame) => Math.log10(Math.max(1, agent.averageScore ?? agent.score));
-    let sumHeightW = 0;
-    population.forEach(p => sumHeightW += p.genome.weights.height);
-    let avgHeightW = sumHeightW / populationSize;
-    let variance = 0;
-    population.forEach(p => variance += Math.pow(p.genome.weights.height - avgHeightW, 2));
-    let diversity = Math.min(100, (variance * 1000));
+    let diversity = computeDiversity(population);
 
     const agents: AgentState[] = population.map(p => ({
         id: p.genome.id,
@@ -173,20 +268,28 @@ function recordLineage() {
     });
 
     const populationCount = Math.max(1, nodes.length);
+    const safeAverage = (sum: number) => {
+        const value = sum / populationCount;
+        return Number.isFinite(value) ? value : 0;
+    };
+    const safeMax = (values: number[]) => {
+        const finite = values.filter(Number.isFinite);
+        return finite.length ? Math.max(...finite) : 0;
+    };
     const telemetry: TelemetryFrame = {
         generation,
-        avgScore: totals.score / populationCount,
-        avgLines: totals.lines / populationCount,
-        avgLevel: totals.level / populationCount,
-        maxScore: Math.max(...nodes.map(n => n.score)),
-        maxLines: Math.max(...nodes.map(n => n.lines)),
-        avgHoles: totals.holes / populationCount,
-        avgBumpiness: totals.bumpiness / populationCount,
-        avgMaxHeight: totals.maxHeight / populationCount,
-        avgWells: totals.wells / populationCount,
-        avgRowTransitions: totals.rowTransitions / populationCount,
-        avgColTransitions: totals.colTransitions / populationCount,
-        holeDensity: Math.min(1, totals.holes / (populationCount * BOARD_WIDTH * 0.8)),
+        avgScore: safeAverage(totals.score),
+        avgLines: safeAverage(totals.lines),
+        avgLevel: safeAverage(totals.level),
+        maxScore: safeMax(nodes.map(n => n.score)),
+        maxLines: safeMax(nodes.map(n => n.lines)),
+        avgHoles: safeAverage(totals.holes),
+        avgBumpiness: safeAverage(totals.bumpiness),
+        avgMaxHeight: safeAverage(totals.maxHeight),
+        avgWells: safeAverage(totals.wells),
+        avgRowTransitions: safeAverage(totals.rowTransitions),
+        avgColTransitions: safeAverage(totals.colTransitions),
+        holeDensity: Math.min(1, safeAverage(totals.holes) / (BOARD_WIDTH * 0.8)),
         timestamp: Date.now()
     };
 
@@ -252,12 +355,7 @@ function evolve() {
         else stagnationCount = 0;
     }
 
-    let sumHeightW = 0;
-    population.forEach(p => sumHeightW += p.genome.weights.height);
-    let avgHeightW = sumHeightW / populationSize;
-    let variance = 0;
-    population.forEach(p => variance += Math.pow(p.genome.weights.height - avgHeightW, 2));
-    let diversity = Math.min(100, (variance * 1000));
+    let diversity = computeDiversity(population);
 
     const isExtinctionEvent = diversity < 3;
     runSequences = GA.generateRunSequences();
@@ -287,15 +385,22 @@ function evolve() {
         }
         mutationRate = 0.1;
     } else {
-        // 2. Breeding (Tournament Selection)
-        const immigrantCount = Math.max(1, Math.floor(populationSize * 0.05));
+        // 2. Breeding (Diversity-aware selection)
+        const diversityTarget = 20;
+        const diversityPressure = Math.max(0, Math.min(1, (diversityTarget - diversity) / diversityTarget));
+        const immigrantCount = Math.max(1, Math.floor(populationSize * (0.05 + (0.25 * diversityPressure))));
         const breedTarget = populationSize - immigrantCount;
+        const boostedMutationRate = Math.min(0.25, mutationRate + (0.05 * diversityPressure));
+        const sigmaScale = 1 + (2 * diversityPressure);
 
         while (newPop.length < breedTarget) {
             let p1 = rankSelect(population);
-            let p2 = rankSelect(population);
+            let p2 = diversityPressure > 0 ? pickDistantMate(p1, population) : rankSelect(population);
             const childGenome = GA.crossover(p1.genome, p2.genome, generation + 1);
-            GA.mutate(childGenome, mutationRate);
+            GA.mutate(childGenome, boostedMutationRate, sigmaScale);
+            if (diversityPressure > 0 && Math.random() < 0.2 * diversityPressure) {
+                randomizeGenomeSlice(childGenome, 0.35);
+            }
             newPop.push(new TetrisGame(childGenome, runSequences));
         }
 
@@ -306,7 +411,9 @@ function evolve() {
         }
 
         // 4. Adaptive mutation rate adjustment
-        if (stagnationCount > 3) {
+        if (diversity < 10) {
+            mutationRate = Math.min(0.25, mutationRate + 0.02);
+        } else if (stagnationCount > 3) {
             mutationRate = Math.min(0.2, mutationRate + 0.01);
         } else {
             mutationRate = Math.max(0.005, mutationRate - 0.002);

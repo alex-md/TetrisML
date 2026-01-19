@@ -23,6 +23,7 @@ const TelemetryPage: React.FC<TelemetryPageProps> = ({ stats, agents, telemetryH
   const avgScore = agents.length > 0 ? agents.reduce((sum, agent) => sum + agent.score, 0) / agents.length : 0;
   const latestTelemetry = telemetryHistory[telemetryHistory.length - 1];
   const latestLineage = lineageHistory[lineageHistory.length - 1] || [];
+  const safeNumber = (value: number, fallback = 0) => (Number.isFinite(value) ? value : fallback);
 
   const distribution = useMemo(() => {
     if (!latestLineage.length) return null;
@@ -53,9 +54,9 @@ const TelemetryPage: React.FC<TelemetryPageProps> = ({ stats, agents, telemetryH
     }
     return telemetryHistory.map(frame => ({
       gen: frame.generation,
-      avgScore: Math.round(frame.avgScore),
-      avgLines: Number(frame.avgLines.toFixed(1)),
-      holeDensity: Number((frame.holeDensity * 100).toFixed(1))
+      avgScore: Math.round(safeNumber(frame.avgScore)),
+      avgLines: Number(safeNumber(frame.avgLines).toFixed(1)),
+      holeDensity: Number((safeNumber(frame.holeDensity) * 100).toFixed(1))
     }));
   }, [telemetryHistory, stats.generation, avgScore, avgLines, latestTelemetry]);
 

@@ -31,9 +31,10 @@ export default {
                 if (request.method === 'POST') {
                     const state = await request.text();
 
-                    // Garbage Collection / Payload Protection: Limit individual save size
-                    if (state.length > 512 * 1024) {
-                        return new Response(JSON.stringify({ error: 'Payload too large (max 512KB)' }), {
+                    // Payload protection: allow larger saves, still keep a hard cap
+                    const MAX_BYTES = 5 * 1024 * 1024; // 5MB
+                    if (state.length > MAX_BYTES) {
+                        return new Response(JSON.stringify({ error: `Payload too large (max ${MAX_BYTES} bytes)` }), {
                             status: 413,
                             headers: { ...corsHeaders, 'Content-Type': 'application/json' }
                         });
