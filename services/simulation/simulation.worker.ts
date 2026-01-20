@@ -39,6 +39,7 @@ let fitnessHistory: number[] = [];
 let stagnationCount = 0;
 let runSequences = GA.generateRunSequences();
 let bestEverFitness = 0;
+let bestEverGenome: Genome | null = null;
 let bestEverGhost: GhostPlayback | null = null;
 let ghostTargetId: string | null = null;
 let bestEverGhostScore = 0;
@@ -237,7 +238,19 @@ const createPopulation = (curriculumOverride?: { gravityScale: number; maxPieces
 
     const curriculum = curriculumOverride ?? getCurriculum(0);
 
-    const pairs = Math.ceil(populationSize / 2);
+    // Hall of Fame: Inject the absolute best genome if it exists
+    if (bestEverGenome) {
+        // We inject it without noise to preserve it perfectly
+        const genome = { ...bestEverGenome, generation: generation, bornMethod: 'hall-of-fame' as any };
+        const agent = new TetrisGame(genome, runSequences, {
+            gravityScale: curriculum.gravityScale,
+            maxPieces: curriculum.maxPieces
+        });
+        population.push(agent);
+        populationNoise.push(new Array(POLICY_PARAM_COUNT).fill(0));
+    }
+
+    const pairs = Math.ceil((populationSize - (bestEverGenome ? 1 : 0)) / 2);
     for (let i = 0; i < pairs; i++) {
         const noise = new Array(POLICY_PARAM_COUNT).fill(0).map(randn);
         const signs = [1, -1];
@@ -309,7 +322,15 @@ function sendUpdate(forceFull = false) {
     const fitnessData = population.map(p => computeFitness(p));
     const fitnessValues = fitnessData.map(d => d.fitness);
     const maxFitness = Math.max(...fitnessValues);
-    if (maxFitness > bestEverFitness) bestEverFitness = maxFitness;
+
+    // Update Hall of Fame
+    if (maxFitness > bestEverFitness) {
+        bestEverFitness = maxFitness;
+        const bestAgent = population[fitnessValues.indexOf(maxFitness)];
+        if (bestAgent) {
+            bestEverGenome = { ...bestAgent.genome, fitness: maxFitness };
+        }
+    }
 
     const avgFitness = fitnessValues.reduce((a, b) => a + b, 0) / Math.max(1, fitnessValues.length);
     const diversity = computeDiversity(population.map(p => p.genome.policy.params));
@@ -513,7 +534,15 @@ function evolve() {
     }
 
     // 3. Refined Stagnation Logic (Cooling vs. Wandering)
-    if (stagnationCount > 8) {
+    const lastMaxFitness = fitnessHistory[fitnessHistory.length - 2] || 0;
+    const currentMaxFitness = Math.max(...fitnesses);
+
+    if (currentMaxFitness > lastMaxFitness * 1.5 && generation > 5) {
+        // 4. Fitness Spike Detection - Lock in major discoveries
+        console.log(`[ES] Fitness Spike Detected! Locking discovery. Sigma: ${sigma} -> 0.02`);
+        sigma = 0.02;
+        stagnationCount = 0;
+    } else if (stagnationCount > 8) {
         // Severe stagnation - escape local minima with high noise (Wandering)
         sigma = Math.min(0.6, sigma + 0.15);
         stagnationCount = 0;

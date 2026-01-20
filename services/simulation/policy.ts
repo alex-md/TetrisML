@@ -36,9 +36,9 @@ const baselineWeights = () => {
     for (let i = 0; i < BOARD_WIDTH; i++) weights.push(-0.8); // heights
     for (let i = 0; i < BOARD_WIDTH; i++) weights.push(-1.0); // holes per column
     weights.push(-1.0); // maxHeight
-    weights.push(-0.7); // aggregateHeight
+    weights.push(-1.0); // aggregateHeight (increased from -0.7)
     weights.push(-0.5); // bumpiness
-    weights.push(-1.1); // holes
+    weights.push(-1.5); // holes (increased from -1.1)
     weights.push(0.15); // wells (small reward for tetris well)
     weights.push(-0.35); // rowTransitions
     weights.push(-0.35); // colTransitions
@@ -46,7 +46,7 @@ const baselineWeights = () => {
     weights.push(1.0); // linesCleared
     weights.push(0.6); // erodedCells
     weights.push(-0.2); // centerDev
-    for (let i = 0; i < 7; i++) weights.push(0); // next piece one-hot
+    for (let i = 0; i < 7; i++) weights.push(0); // next piece one-hot (neutralized)
     return weights;
 };
 
