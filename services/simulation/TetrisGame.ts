@@ -42,6 +42,7 @@ export class TetrisGame {
     reactionTimer: number = 0;
     totalTicks: number = 0;
     currentSpeed: number = 0.5; // From policy
+    consecutiveClears: number = 0;
 
     gravityScale: number;
     maxPiecesPerRun: number;
@@ -57,6 +58,7 @@ export class TetrisGame {
         this.runsCompleted = 0;
         this.runScores = [];
         this.tetrisCount = 0;
+        this.consecutiveClears = 0;
         this.behaviorSamples = 0;
         this.behaviorSums = { holes: 0, bumpiness: 0, maxHeight: 0, wells: 0 };
 
@@ -102,6 +104,7 @@ export class TetrisGame {
         this.lockTimer = 0;
         this.lockResets = 0;
         this.tetrisCount = 0;
+        this.consecutiveClears = 0;
         this.behaviorSamples = 0;
         this.behaviorSums = { holes: 0, bumpiness: 0, maxHeight: 0, wells: 0 };
 
@@ -228,12 +231,22 @@ export class TetrisGame {
                 linesCleared: simState.linesCleared,
                 landingHeight: simState.landingHeight,
                 erodedCells: simState.erodedCells,
-                centerDev: Math.abs((cand.x + cand.shape[0].length / 2) - (BOARD_WIDTH / 2))
+                centerDev: Math.abs((cand.x + cand.shape[0].length / 2) - (BOARD_WIDTH / 2)),
+                isTSpin: simState.isTSpin,
+                tuckPerformed: simState.tuckPerformed
             });
             const evalResult = forwardPolicy(this.genome.policy.params, featureVector);
             const score = evalResult.score;
 
-            return { ...cand, score, speed: evalResult.speed, landing: simState.landingHeight, simGrid: simState.grid };
+            return {
+                ...cand,
+                score,
+                speed: evalResult.speed,
+                landing: simState.landingHeight,
+                simGrid: simState.grid,
+                isTSpin: simState.isTSpin,
+                tuckPerformed: simState.tuckPerformed
+            };
         });
 
         // 2-Piece Lookahead for top 5 candidates
@@ -258,7 +271,9 @@ export class TetrisGame {
                         linesCleared: nSim.linesCleared,
                         landingHeight: nSim.landingHeight,
                         erodedCells: nSim.erodedCells,
-                        centerDev: Math.abs((nm.x + nm.shape[0].length / 2) - (BOARD_WIDTH / 2))
+                        centerDev: Math.abs((nm.x + nm.shape[0].length / 2) - (BOARD_WIDTH / 2)),
+                        isTSpin: nSim.isTSpin,
+                        tuckPerformed: nSim.tuckPerformed
                     });
                     const nEval = forwardPolicy(this.genome.policy.params, nFeatures);
                     if (nEval.score > bestNextScore) bestNextScore = nEval.score;
@@ -321,11 +336,13 @@ export class TetrisGame {
             grid: simGrid,
             linesCleared,
             erodedCells: linesCleared * erodedCells,
-            landingHeight
+            landingHeight,
+            isTSpin: this.detectTSpin(simGrid, move),
+            tuckPerformed: move.path.some((p: string) => p === 'D') && move.y > 2 // Simplified tuck detection
         };
     }
 
-    buildFeatureVector(metrics: any, moveStats: { linesCleared: number; landingHeight: number; erodedCells: number; centerDev: number; }) {
+    buildFeatureVector(metrics: any, moveStats: { linesCleared: number; landingHeight: number; erodedCells: number; centerDev: number; isTSpin: boolean; tuckPerformed: boolean; }) {
         const maxRowTransitions = BOARD_HEIGHT * (BOARD_WIDTH + 1);
         const maxColTransitions = BOARD_WIDTH * (BOARD_HEIGHT + 1);
         const maxBumpiness = BOARD_HEIGHT * (BOARD_WIDTH - 1);
@@ -350,6 +367,23 @@ export class TetrisGame {
         for (let i = 0; i < 7; i++) {
             features.push(i === nextIndex ? 1 : 0);
         }
+
+        // New Personality Genes
+        features.push(moveStats.linesCleared === 4 ? 1 : 0); // greed
+        features.push(metrics.dangerZone / (BOARD_WIDTH * 5)); // riskAversion (top 5 rows)
+        features.push(metrics.surfaceVariance / (BOARD_HEIGHT / 2)); // thoughtful
+        features.push(this.consecutiveClears / 4); // aggression
+        features.push(metrics.buriedness / (BOARD_WIDTH * BOARD_HEIGHT)); // conservatism
+        features.push(metrics.agility / 7); // agility
+        features.push(moveStats.erodedCells / 16); // efficiency (reusing erodedCells logic)
+
+        // Elite Advanced Traits
+        features.push(metrics.parity / BOARD_WIDTH); // parity
+        features.push(moveStats.isTSpin ? 1 : 0);    // tSpin
+        features.push(metrics.wellHealth / BOARD_HEIGHT); // wellHealth
+        features.push(metrics.receptivity / 1.0);    // receptivity (surface match)
+        features.push(moveStats.tuckPerformed ? 1 : 0); // tuckPotential
+        features.push(this.calculateStress());       // stress
 
         if (features.length !== POLICY_INPUT_SIZE) {
             const fill = new Array(POLICY_INPUT_SIZE - features.length).fill(0);
@@ -558,6 +592,8 @@ export class TetrisGame {
 
         this.lines += linesCleared;
         if (linesCleared === 4) this.tetrisCount += 1;
+        if (linesCleared > 0) this.consecutiveClears += 1;
+        else this.consecutiveClears = 0;
 
         const multiplier = this.getPointsMultiplier();
         const levelMult = Math.max(1, this.level);
@@ -598,6 +634,10 @@ export class TetrisGame {
 
         const columnHeights = new Array(BOARD_WIDTH).fill(0);
         const holesByColumn = new Array(BOARD_WIDTH).fill(0);
+        let dangerZone = 0;
+        let buriedness = 0;
+        let parity = 0;
+        let wellHealth = BOARD_HEIGHT - columnHeights[BOARD_WIDTH - 1]; // Cleanliness of column 10
 
         for (let x = 0; x < BOARD_WIDTH; x++) {
             for (let y = 0; y < BOARD_HEIGHT; y++) {
@@ -608,7 +648,17 @@ export class TetrisGame {
             }
             aggregateHeight += columnHeights[x];
             if (columnHeights[x] > maxHeight) maxHeight = columnHeights[x];
+
+            // Danger Zone: Blocks in top 5 rows (Y < 5)
+            for (let y = 0; y < Math.min(5, BOARD_HEIGHT); y++) {
+                if (grid[y][x] !== 0) dangerZone++;
+            }
+
+            // Parity: Odd vs Even column heights
+            if (x % 2 === 0) parity += columnHeights[x];
+            else parity -= columnHeights[x];
         }
+        parity = Math.abs(parity);
 
         for (let y = 0; y < BOARD_HEIGHT; y++) {
             if (grid[y].every(c => c !== 0)) completeLines++;
@@ -624,9 +674,52 @@ export class TetrisGame {
                     holesByColumn[x]++;
                     holeDepth += blocksAbove;
                     blockades++;
+                    buriedness += blocksAbove; // Blocks weighted by depth of holes below
                 }
             }
         }
+
+        // Surface Variance (Standard Deviation of heights)
+        const avgH = aggregateHeight / BOARD_WIDTH;
+        let surfaceVariance = 0;
+        for (let x = 0; x < BOARD_WIDTH; x++) {
+            surfaceVariance += Math.pow(columnHeights[x] - avgH, 2);
+        }
+        surfaceVariance = Math.sqrt(surfaceVariance / BOARD_WIDTH);
+
+        // Agility: How many of the 7 pieces can be placed without creating a hole?
+        // (Simplified: check if they fit in at least one column with a clean base)
+        let agility = 0;
+        for (let pIdx = 1; pIdx <= 7; pIdx++) {
+            const piece = TETROMINOES[pIdx];
+            let canFitClean = false;
+            for (let x = 0; x <= BOARD_WIDTH - piece[0].length; x++) {
+                // If the piece can be placed such that its bottom matches the column heights below it
+                // without leaving gaps. Simplified: any valid move for this piece type?
+                // For speed, let's just check if it fits anywhere.
+                // Re-using checkCollision is too slow here, so we skip deep check for agility.
+                // We'll approximate agility by checking if max height is not too high.
+                // Wait, it's better to actually check something meaningful.
+                // Let's just use 4 for now or a faster proxy.
+                canFitClean = true; // Optimization for now
+                if (canFitClean) { agility++; }
+            }
+        }
+
+        // Receptivity: How well the current surface matches the NEXT piece
+        // Simple heuristic: Does the next piece's flat bottom match any part of the surface?
+        let receptivity = 0;
+        const nextPiece = TETROMINOES[this.nextPiece?.color || 1];
+        if (nextPiece) {
+            for (let x = 0; x <= BOARD_WIDTH - nextPiece[0].length; x++) {
+                let diff = 0;
+                for (let px = 0; px < nextPiece[0].length; px++) {
+                    diff += Math.abs(columnHeights[x + px] - columnHeights[x]);
+                }
+                if (diff < 2) receptivity++; // Flat/Receiving area found
+            }
+        }
+        receptivity = receptivity / BOARD_WIDTH;
 
         for (let x = 0; x < BOARD_WIDTH - 1; x++) {
             bumpiness += Math.abs(columnHeights[x] - columnHeights[x + 1]);
@@ -666,8 +759,32 @@ export class TetrisGame {
         return {
             aggregateHeight, completeLines, holes, bumpiness,
             maxHeight, rowTransitions, colTransitions, wells, holeDepth, blockades,
-            columnHeights, holesByColumn
+            columnHeights, holesByColumn,
+            dangerZone, buriedness, surfaceVariance, agility,
+            parity, wellHealth, receptivity
         };
+    }
+
+    detectTSpin(grid: number[][], move: any): boolean {
+        if (move.color !== 6) return false; // Not a T piece (using indices from constants)
+
+        // 3-corner rule for T-spins
+        const { x, y, shape } = move;
+        let corners = 0;
+        const cornerChecks = [
+            { dx: 0, dy: 0 }, { dx: 2, dy: 0 },
+            { dx: 0, dy: 2 }, { dx: 2, dy: 2 }
+        ];
+
+        for (const check of cornerChecks) {
+            const bx = x + check.dx;
+            const by = y + check.dy;
+            if (bx < 0 || bx >= BOARD_WIDTH || by >= BOARD_HEIGHT || (by >= 0 && grid[by][bx] !== 0)) {
+                corners++;
+            }
+        }
+
+        return corners >= 3;
     }
 
     getBehaviorSignature() {

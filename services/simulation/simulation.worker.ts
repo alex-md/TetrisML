@@ -1,6 +1,6 @@
 import { TetrisGame } from './TetrisGame';
 import * as GA from './EvolutionEngine';
-import { GAMES_PER_GEN, BOARD_WIDTH, POPULATION_SIZE } from './constants';
+import { GAMES_PER_GEN, BOARD_WIDTH, BOARD_HEIGHT, POPULATION_SIZE } from './constants';
 import {
     Genome,
     MainMessage,
@@ -148,15 +148,27 @@ const computeFitness = (agent: TetrisGame) => {
     const lineClearBonus = agent.lines * 100;
     const tetrisBonus = agent.tetrisCount * 1000;
     const heightPenalty = metrics.maxHeight * 15; // Linear penalty
-    const holePenalty = metrics.holes * 300; // Significant penalty for buried holes
 
     // Final Fitness Shaping
     let fitness = rawScore;
     fitness -= heightPenalty;
-    fitness -= holePenalty;
-    fitness += lineClearBonus;
-    fitness += tetrisBonus;
-    if (!agent.isAlive) fitness -= 1500;
+
+    // 2. Non-Linear Synergy (Elite Logic)
+    // Hole-Height Synergy: Holes become exponentially more dangerous as stack rises
+    const stackFactor = (metrics.maxHeight / BOARD_HEIGHT);
+    const holeSynergy = Math.pow(metrics.holes, 1.5) * (1 + stackFactor * 5);
+    fitness -= holeSynergy * 50;
+
+    // Line-Cleanliness Synergy: High clears (Tetris) are worth much more on clean boards
+    const cleanliness = 1 - (metrics.holes / 20); // 1.0 is perfectly clean
+    const tetrisSynergy = agent.tetrisCount * 2000 * Math.max(0, cleanliness);
+    fitness += tetrisSynergy;
+
+    // Burn-Rate Penalty: Favoring efficient clears over "burning" single lines
+    const burnRate = agent.lines > 0 ? (agent.lines - (agent.tetrisCount * 4)) / agent.lines : 0;
+    fitness -= burnRate * 500;
+
+    if (!agent.isAlive) fitness -= 2000;
 
     // Normalization & Intelligence Metrics
     const pieces = Math.max(1, agent.piecesSpawned);

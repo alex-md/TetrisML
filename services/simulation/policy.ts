@@ -21,7 +21,20 @@ export const POLICY_FEATURES = [
     'next_O',
     'next_S',
     'next_T',
-    'next_Z'
+    'next_Z',
+    'greed',         // Reward Tetris
+    'riskAversion',  // Danger zone penalty
+    'thoughtful',    // Surface variance
+    'aggression',    // Combo potential
+    'conservatism',  // Buriedness
+    'agility',       // Piece flexibility
+    'efficiency',    // Erosion
+    'parity',        // Column parity
+    'tSpin',         // T-spin potential
+    'wellHealth',    // Col 9/10 status
+    'receptivity',   // Surface matching (next piece)
+    'tuckPotential', // Overhang slide capacity
+    'stress'         // Stack height pressure
 ];
 
 export const POLICY_INPUT_SIZE = POLICY_FEATURES.length;
@@ -47,6 +60,19 @@ const baselineWeights = () => {
     weights.push(0.6); // erodedCells
     weights.push(-0.2); // centerDev
     for (let i = 0; i < 7; i++) weights.push(0); // next piece one-hot (neutralized)
+    weights.push(0.5);  // greed
+    weights.push(-0.5); // riskAversion
+    weights.push(-0.2); // thoughtful
+    weights.push(0.1);  // aggression
+    weights.push(-0.5); // conservatism
+    weights.push(0.3);  // agility
+    weights.push(0.2);  // efficiency
+    weights.push(-0.4); // parity
+    weights.push(1.2);  // tSpin (High reward)
+    weights.push(0.8);  // wellHealth
+    weights.push(0.5);  // receptivity
+    weights.push(0.6);  // tuckPotential
+    weights.push(0);    // stress (Neutral seed)
     return weights;
 };
 
