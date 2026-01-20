@@ -18,7 +18,7 @@ export interface Genome {
   fitness: number;
   color: string;
   parents: string[]; // IDs of parents
-  bornMethod: 'seed' | 'es-sample' | 'elite' | 'imported';
+  bornMethod: 'seed' | 'es-sample' | 'elite' | 'imported' | 'immigrant' | 'hall-of-fame';
 }
 
 export interface AgentState {

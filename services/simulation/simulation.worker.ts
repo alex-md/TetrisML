@@ -251,13 +251,29 @@ const createPopulation = (curriculumOverride?: { gravityScale: number; maxPieces
     }
 
     const pairs = Math.ceil((populationSize - (bestEverGenome ? 1 : 0)) / 2);
+    const diversityLimit = 5; // 5%
+    const diversity = computeDiversity(population.map(p => p.genome.policy.params));
+    const shouldInjectImmigrant = diversity < diversityLimit && generation > 5;
+
     for (let i = 0; i < pairs; i++) {
         const noise = new Array(POLICY_PARAM_COUNT).fill(0).map(randn);
         const signs = [1, -1];
         for (const sign of signs) {
             if (population.length >= populationSize) break;
-            const params = addScaled(policyMeanParams, noise, sigma * sign);
-            const genome = buildGenome(params, 'es-sample', parentIds);
+
+            let params: number[];
+            let bornMethod: Genome['bornMethod'] = 'es-sample';
+
+            // Random Immigrant injection to recover diversity
+            if (shouldInjectImmigrant && population.length === populationSize - 1) {
+                params = createRandomPolicyParams();
+                bornMethod = 'immigrant';
+                console.log(`[ES] Injecting Random Immigrant to recover diversity (${diversity}%).`);
+            } else {
+                params = addScaled(policyMeanParams, noise, sigma * sign);
+            }
+
+            const genome = buildGenome(params, bornMethod, parentIds);
             const agent = new TetrisGame(genome, runSequences, {
                 gravityScale: curriculum.gravityScale,
                 maxPieces: curriculum.maxPieces
@@ -373,15 +389,18 @@ function sendUpdate(forceFull = false) {
 function initPopulation() {
     lineageHistory = [];
     leaderboard = [];
+    bestEverGenome = null;
+    bestEverFitness = 0;
     bestEverGhost = null;
-    ghostTargetId = null;
     bestEverGhostScore = 0;
+    ghostTargetId = null;
     telemetryHistory = [];
     fitnessHistory = [];
     stagnationCount = 0;
     populationSize = POPULATION_SIZE;
     policyMeanParams = createSeedPolicyParams();
     noveltyArchive = [];
+    sigma = 0.28; // Reset mutation rate
     createPopulation(getCurriculum(0));
     recordLineage();
 }
@@ -539,8 +558,10 @@ function evolve() {
 
     if (currentMaxFitness > lastMaxFitness * 1.5 && generation > 5) {
         // 4. Fitness Spike Detection - Lock in major discoveries
-        console.log(`[ES] Fitness Spike Detected! Locking discovery. Sigma: ${sigma} -> 0.02`);
-        sigma = 0.02;
+        // Increased from 0.02 to 0.06 to maintain some diversity
+        const lockSigma = 0.06;
+        console.log(`[ES] Fitness Spike Detected! Locking discovery. Sigma: ${sigma.toFixed(3)} -> ${lockSigma}`);
+        sigma = lockSigma;
         stagnationCount = 0;
     } else if (stagnationCount > 8) {
         // Severe stagnation - escape local minima with high noise (Wandering)
@@ -551,7 +572,8 @@ function evolve() {
         sigma = Math.max(sigmaFloor, sigma - 0.05);
     } else {
         // Healthy growth or minor stagnation - gently anneal
-        sigma = Math.max(sigmaFloor, sigma - 0.01);
+        // Slower annealing to maintain exploration
+        sigma = Math.max(sigmaFloor, sigma - 0.005);
     }
 
     const noveltySorted = signatures
