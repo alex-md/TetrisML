@@ -124,28 +124,8 @@ const App: React.FC = () => {
                     setGhostFrameIndex(0);
                 }
 
-                if (payload.stats && payload.stats.generation !== lastGenerationRef.current) {
-                    lastGenerationRef.current = payload.stats.generation;
-                    const snapshotAgent = payload.agents.length > 0
-                        ? payload.agents.reduce((prev: AgentState, current: AgentState) => (prev.score > current.score ? prev : current), payload.agents[0])
-                        : null;
-                    if (snapshotAgent) {
-                        const snapshot: GenerationSnapshot = {
-                            generation: payload.stats.generation,
-                            agentId: snapshotAgent.id,
-                            score: snapshotAgent.score,
-                            lines: snapshotAgent.lines,
-                            grid: snapshotAgent.grid.map(row => [...row]),
-                            currentPiece: snapshotAgent.currentPiece ? {
-                                shape: snapshotAgent.currentPiece.shape.map(row => [...row]),
-                                x: snapshotAgent.currentPiece.x,
-                                y: snapshotAgent.currentPiece.y,
-                                color: snapshotAgent.currentPiece.color
-                            } : undefined,
-                            timestamp: Date.now()
-                        };
-                        setTimelineSnapshots(prev => [...prev.slice(-39), snapshot]);
-                    }
+                if (payload.endOfGenSnapshot) {
+                    setTimelineSnapshots(prev => [...prev.slice(-39), payload.endOfGenSnapshot]);
                 }
 
                 // Track deep metadata for persistence
@@ -153,17 +133,18 @@ const App: React.FC = () => {
                 if (payload.stagnationCount !== undefined) stagnationCountRef.current = payload.stagnationCount;
 
                 // Fitness History Logic
+                // Fitness History Logic: Deduplicate and Sort
                 setFitnessHistory(prev => {
-                    const last = prev[prev.length - 1];
-                    if (!last || last.gen !== payload.stats.generation) {
-                        return [...prev, { gen: payload.stats.generation, fitness: payload.stats.maxFitness }].slice(-50);
+                    const exists = prev.some(h => h.gen === payload.stats.generation);
+                    if (exists) {
+                        return prev.map(h => h.gen === payload.stats.generation
+                            ? { ...h, fitness: Math.max(h.fitness, payload.stats.maxFitness) }
+                            : h
+                        ).sort((a, b) => a.gen - b.gen).slice(-50);
                     }
-                    if (last && last.gen === payload.stats.generation && payload.stats.maxFitness > last.fitness) {
-                        const newHistory = [...prev];
-                        newHistory[newHistory.length - 1] = { ...newHistory[newHistory.length - 1], fitness: payload.stats.maxFitness };
-                        return newHistory;
-                    }
-                    return prev;
+                    return [...prev, { gen: payload.stats.generation, fitness: payload.stats.maxFitness }]
+                        .sort((a, b) => a.gen - b.gen)
+                        .slice(-50);
                 });
             }
         };

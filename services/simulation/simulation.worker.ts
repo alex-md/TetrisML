@@ -31,6 +31,7 @@ const speed = 1; // 1:1 move visibility
 let isPaused = false;
 let lastUpdateTime = 0;
 let lastHeavyUpdateTime = 0;
+let lastGenSnapshot: any = null;
 
 let lineageHistory: LineageNode[][] = [];
 let leaderboard: LeaderboardEntry[] = [];
@@ -145,10 +146,12 @@ const computeFitness = (agent: TetrisGame) => {
     const lineClearBonus = agent.lines * 100;
     const tetrisBonus = agent.tetrisCount * 1000;
     const heightPenalty = metrics.maxHeight * 15; // Linear penalty
+    const holePenalty = metrics.holes * 300; // Significant penalty for buried holes
 
     // Final Fitness Shaping
     let fitness = rawScore;
     fitness -= heightPenalty;
+    fitness -= holePenalty;
     fitness += lineClearBonus;
     fitness += tetrisBonus;
     if (!agent.isAlive) fitness -= 1500;
@@ -337,9 +340,13 @@ function sendUpdate(forceFull = false) {
             mutationRate: sigma,
             stagnationCount,
             ghost: isHeavyUpdate ? (bestEverGhost || undefined) : undefined,
-            telemetryHistory: isHeavyUpdate ? telemetryHistory : undefined
+            telemetryHistory: isHeavyUpdate ? telemetryHistory : undefined,
+            endOfGenSnapshot: lastGenSnapshot
         }
     });
+
+    // Clear snapshot after sending to prevent redundant captures
+    if (lastGenSnapshot) lastGenSnapshot = null;
 }
 
 function initPopulation() {
@@ -534,6 +541,25 @@ function evolve() {
     }, population[0]);
 
     const bestScore = Math.max(...population.map(p => p.score), 0);
+
+    // Capture snapshot for telemetry BEFORE resetting population
+    if (bestAgent) {
+        lastGenSnapshot = {
+            generation: generation,
+            agentId: bestAgent.genome.id,
+            score: bestAgent.score,
+            lines: bestAgent.lines,
+            grid: bestAgent.grid.map(row => [...row]),
+            currentPiece: bestAgent.currentPiece ? {
+                shape: bestAgent.currentPiece.shape.map(row => [...row]),
+                x: bestAgent.currentPiece.x,
+                y: bestAgent.currentPiece.y,
+                color: bestAgent.currentPiece.color
+            } : undefined,
+            timestamp: Date.now()
+        };
+    }
+
     generation++;
     createPopulation(getCurriculum(bestScore), bestAgent ? [bestAgent.genome.id] : []);
     recordLineage();
