@@ -312,31 +312,37 @@ const App: React.FC = () => {
     };
 
     const exportState = () => {
-        // Construct a lean, analysis-focused state object
+        // Construct a lean, analysis-focused state object with defensive checks
         const leanState = {
             metadata: {
                 app: "TetrisML",
-                version: "v1.1-analysis-optimized",
+                version: "v1.2-analysis-optimized",
                 timestamp: new Date().toISOString(),
                 note: "Verbose data (lineage, telemetry, ghost frames) has been omitted to optimize for token-efficient analysis."
             },
             stats: statsRef.current,
             history: historyRef.current,
-            leaderboard: leaderboardRef.current.map(entry => ({
-                id: entry.id,
-                score: entry.score,
-                generation: entry.generation,
-                // Include policy as it's critical for "how the brain works"
-                policy: entry.genome.policy
-            })),
-            currentBrains: agentsRef.current.map(a => ({
-                id: a.genome.id,
-                summary: a.genome.summary,
-                mutationRate: mutationRateRef.current,
-                policy: a.genome.policy
-            })),
-            // Only include the metadata of the snapshots/ghosts, not the heavy frames/grids
-            timelineSummary: timelineRef.current.map(s => ({
+            leaderboard: (leaderboardRef.current || []).map(entry => {
+                const genome = entry?.genome;
+                if (!genome) return null;
+                return {
+                    id: entry.id,
+                    score: entry.score,
+                    generation: entry.generation,
+                    policy: genome.policy
+                };
+            }).filter(Boolean),
+            currentBrains: (agentsRef.current || []).map(a => {
+                const genome = a?.genome;
+                if (!genome) return null;
+                return {
+                    id: genome.id,
+                    summary: genome.summary,
+                    mutationRate: mutationRateRef.current,
+                    policy: genome.policy
+                };
+            }).filter(Boolean),
+            timelineSummary: (timelineRef.current || []).map(s => ({
                 generation: s.generation,
                 score: s.score,
                 lines: s.lines
@@ -351,7 +357,7 @@ const App: React.FC = () => {
             alert(`Simulation data exported! (${lineCount} lines). Ready for analysis.`);
         }).catch(err => {
             console.error("[Export] Failed to copy state:", err);
-            alert("Failed to copy state to clipboard.");
+            alert("Failed to copy state to clipboard. Check the console for permissions issues.");
         });
     };
 
