@@ -1,5 +1,6 @@
 import { TetrisGame } from './TetrisGame';
 import * as GA from './EvolutionEngine';
+import { extractCollectiveInsights, applyCollectiveLearning } from './CollectiveLearning';
 import { GAMES_PER_GEN, BOARD_WIDTH, BOARD_HEIGHT, POPULATION_SIZE } from './constants';
 import {
     Genome,
@@ -556,6 +557,25 @@ function evolve() {
     for (let p = 0; p < policyMeanParams.length; p++) {
         policyMeanParams[p] += (stepSize / (population.length * sigma)) * grad[p];
     }
+
+    // Collective Learning: Integrate shared knowledge
+    const collectiveInsights = extractCollectiveInsights(population);
+    // Dynamic learning rate: Higher early on to establish culture, lower later to fine tune
+    const collectiveLearningRate = Math.max(0.02, 0.15 * Math.pow(0.98, generation));
+    policyMeanParams = applyCollectiveLearning(policyMeanParams, collectiveInsights, collectiveLearningRate);
+
+
+    if (generation % 5 === 0 && collectiveInsights.archetypes.length > 0) {
+        // Log the dominant archetype's top traits
+        const dominant = collectiveInsights.archetypes[0]; // "The Architect" usually first in list
+        const topTraits = Object.entries(dominant.attributes)
+            .sort((a, b) => Math.abs(b[1]) - Math.abs(a[1]))
+            .slice(0, 3)
+            .map(([k, v]) => `${k} (${v.toFixed(2)})`)
+            .join(', ');
+        console.log(`[Collective Learning] Gen ${generation} Cultivating: ${dominant.name} (Top Traits: ${topTraits})`);
+    }
+
 
     const avgFitness = fitnesses.reduce((sum, v) => sum + v, 0) / Math.max(1, fitnesses.length);
     fitnessHistory.push(avgFitness);
