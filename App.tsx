@@ -126,6 +126,8 @@ const App: React.FC = () => {
 
                 if (payload.endOfGenSnapshot) {
                     setTimelineSnapshots(prev => [...prev.slice(-39), payload.endOfGenSnapshot]);
+                    // Trigger persistence at the end of the generation
+                    triggerSync(payload);
                 }
 
                 // Track deep metadata for persistence
@@ -133,7 +135,6 @@ const App: React.FC = () => {
                 if (payload.stagnationCount !== undefined) stagnationCountRef.current = payload.stagnationCount;
 
                 // Fitness History Logic
-                // Fitness History Logic: Deduplicate and Sort
                 setFitnessHistory(prev => {
                     const exists = prev.some(h => h.gen === payload.stats.generation);
                     if (exists) {
@@ -146,6 +147,60 @@ const App: React.FC = () => {
                         .sort((a, b) => a.gen - b.gen)
                         .slice(-50);
                 });
+            }
+        };
+
+        const triggerSync = async (payload: any) => {
+            if (!isLoadedRef.current) return;
+
+            // Construct state primarily from the payload (latest end-of-gen data)
+            const fullState = {
+                population: payload.agents.map((a: any) => ({
+                    id: a.genome.id,
+                    generation: a.genome.generation,
+                    policy: a.genome.policy,
+                    summary: a.genome.summary,
+                    color: a.genome.color,
+                    bornMethod: a.genome.bornMethod,
+                    parents: a.genome.parents
+                })),
+                stats: payload.stats,
+                leaderboard: payload.leaderboard || leaderboardRef.current,
+                lineage: payload.lineage || lineageRef.current,
+                telemetryHistory: payload.telemetryHistory || telemetryRef.current,
+                ghost: payload.ghost || ghostMetaRef.current || undefined,
+                timeline: [...timelineRef.current.slice(-39), payload.endOfGenSnapshot],
+                history: historyRef.current,
+                mutationRate: mutationRateRef.current,
+                stagnationCount: stagnationCountRef.current,
+                timestamp: Date.now()
+            };
+
+            const stateStr = JSON.stringify(fullState);
+
+            // 1. Local Save (Critical for offline, but risky on size)
+            try {
+                localStorage.setItem(STORAGE_KEY, stateStr);
+            } catch (e) {
+                if (e instanceof DOMException && e.name === 'QuotaExceededError') {
+                    console.warn("[Persistence] LocalStorage Quota Exceeded. Deep state too large. Relying on Cloudflare sync.");
+                } else {
+                    console.error("[Persistence] LocalStorage error:", e);
+                }
+            }
+
+            // 2. Cloudflare Sync (Authoritative)
+            try {
+                console.log(`[Persistence] Syncing Gen ${payload.endOfGenSnapshot.generation} to Cloudflare...`);
+                const res = await fetch(`${API_BASE}/api/state`, {
+                    method: 'POST',
+                    body: stateStr,
+                    headers: { 'Content-Type': 'application/json' }
+                });
+                if (!res.ok) console.warn("[Persistence] Cloudflare sync failed:", res.status);
+                else console.log("[Persistence] Cloudflare sync successful.");
+            } catch (e) {
+                console.error("[Persistence] Cloudflare sync error", e);
             }
         };
 
@@ -227,63 +282,7 @@ const App: React.FC = () => {
         return () => { worker.terminate(); };
     }, []);
 
-    // --- AUTO SAVE ---
-    useEffect(() => {
-        const interval = setInterval(async () => {
-            const currentAgents = agentsRef.current;
-            const currentStats = statsRef.current;
-
-            if (!isLoadedRef.current) {
-                console.log("[Persistence] Save skipped: Waiting for initial load...");
-                return;
-            }
-
-            if (currentAgents.length > 0 && currentStats.generation >= 1) {
-                // Construct Full persistent state
-                const fullState = {
-                    population: currentAgents.map(a => ({
-                        id: a.genome.id,
-                        generation: a.genome.generation || currentStats.generation,
-                        policy: a.genome.policy,
-                        summary: a.genome.summary,
-                        color: a.genome.color,
-                        bornMethod: a.genome.bornMethod,
-                        parents: a.genome.parents
-                    })),
-                    stats: currentStats,
-                    leaderboard: leaderboardRef.current,
-                    lineage: lineageRef.current,
-                    telemetryHistory: telemetryRef.current,
-                    ghost: ghostMetaRef.current || undefined,
-                    timeline: timelineRef.current,
-                    history: historyRef.current,
-                    mutationRate: mutationRateRef.current,
-                    stagnationCount: stagnationCountRef.current,
-                    timestamp: Date.now()
-                };
-
-                const stateStr = JSON.stringify(fullState);
-
-                // Save to local storage
-                localStorage.setItem(STORAGE_KEY, stateStr);
-
-                // Save to Backend
-                try {
-                    console.log(`[Persistence] Syncing deep state (Gen ${currentStats.generation}) to Cloudflare...`);
-                    const res = await fetch(`${API_BASE}/api/state`, {
-                        method: 'POST',
-                        body: stateStr,
-                        headers: { 'Content-Type': 'application/json' }
-                    });
-                    if (!res.ok) console.warn("[Persistence] Cloudflare sync failed:", res.status);
-                    else console.log("[Persistence] Cloudflare sync successful.");
-                } catch (e) {
-                    console.error("[Persistence] Cloudflare sync error", e);
-                }
-            }
-        }, 15000); // 15s interval for backend saves
-        return () => clearInterval(interval);
-    }, []); // Stable interval
+    // Removal of 15s interval sync in favor of event-driven sync triggered when a generation completes.
 
 
     const togglePlay = () => {
