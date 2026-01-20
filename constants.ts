@@ -1,7 +1,7 @@
 
 export const BOARD_WIDTH = 10;
 export const BOARD_HEIGHT = 20;
-export const POPULATION_SIZE = 24;
+export const POPULATION_SIZE = 12;
 
 export const TETROMINO_COLORS = [
   'transparent', // 0

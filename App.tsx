@@ -311,6 +311,39 @@ const App: React.FC = () => {
         setIsPlaying(!isPlaying);
     };
 
+    const exportState = () => {
+        const fullState = {
+            population: agentsRef.current.map(a => ({
+                id: a.genome.id,
+                generation: a.genome.generation || statsRef.current.generation,
+                policy: a.genome.policy,
+                summary: a.genome.summary,
+                color: a.genome.color,
+                bornMethod: a.genome.bornMethod,
+                parents: a.genome.parents
+            })),
+            stats: statsRef.current,
+            leaderboard: leaderboardRef.current,
+            lineage: lineageRef.current,
+            telemetryHistory: telemetryRef.current,
+            ghost: ghostMetaRef.current || undefined,
+            timeline: timelineRef.current,
+            history: historyRef.current,
+            mutationRate: mutationRateRef.current,
+            stagnationCount: stagnationCountRef.current,
+            timestamp: Date.now()
+        };
+
+        const stateStr = JSON.stringify(fullState, null, 2);
+        navigator.clipboard.writeText(stateStr).then(() => {
+            console.log("[Export] State copied to clipboard successfully.");
+            alert("Simulation state copied to clipboard!");
+        }).catch(err => {
+            console.error("[Export] Failed to copy state:", err);
+            alert("Failed to copy state to clipboard. Check console for details.");
+        });
+    };
+
     const reset = async () => {
         if (window.confirm("Initialize System Reset?")) {
             workerRef.current?.postMessage({ type: 'RESET' });
@@ -373,6 +406,7 @@ const App: React.FC = () => {
                             onTogglePlay={togglePlay}
                             onReset={reset}
                             onAgentClick={handleAgentClick}
+                            onExportState={exportState}
                         />
                     )}
                     {route === 'highscores' && (

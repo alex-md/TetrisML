@@ -520,6 +520,18 @@ export class TetrisGame {
         }
     }
 
+    getPointsMultiplier(): number {
+        // Mastery Bonus: Strong reward for skill (lines cleared). +1.0x every 10 lines.
+        const lineBonus = this.lines / 10;
+        // Performance Bonus: Polynomial growth (sqrt) based on points. Reaches +10.0x at 200k points.
+        const scoreBonus = Math.sqrt(this.score / 2000);
+        // Veteran Bonus (Minimal): Reduced reward for just surviving (+1.0x per 5 mins at default speed).
+        const survivalBonus = this.totalTicks / 18000;
+
+        // Final Multiplier (High cap for elites, but sub-exponential growth curve)
+        return Math.min(200, 1.0 + lineBonus + scoreBonus + survivalBonus);
+    }
+
     lockPiece() {
         const shape = this.currentPiece.shape;
         for (let y = 0; y < shape.length; y++) {
@@ -547,17 +559,18 @@ export class TetrisGame {
         this.lines += linesCleared;
         if (linesCleared === 4) this.tetrisCount += 1;
 
+        const multiplier = this.getPointsMultiplier();
         const levelMult = Math.max(1, this.level);
+        let baseScore = 0;
         switch (linesCleared) {
-            case 1: this.score += 100 * levelMult; break;
-            case 2: this.score += 400 * levelMult; break;
-            case 3: this.score += 900 * levelMult; break;
-            case 4: this.score += 2500 * levelMult; break;
+            case 1: baseScore = 100 * levelMult; break;
+            case 2: baseScore = 400 * levelMult; break;
+            case 3: baseScore = 900 * levelMult; break;
+            case 4: baseScore = 2500 * levelMult; break;
         }
-        this.score += 1;
-        if (linesCleared > 0) {
-            this.score += Math.floor(this.score * 0.005);
-        }
+
+        this.score += Math.floor(baseScore * multiplier);
+        this.score += Math.max(1, Math.floor(1 * multiplier)); // Base piece lock score
 
         this.level = Math.floor(this.lines / 10) + 1;
 

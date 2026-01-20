@@ -13,7 +13,8 @@ import {
   Activity,
   Users,
   Zap,
-  Layers
+  Layers,
+  Copy
 } from 'lucide-react';
 
 interface SimulationPageProps {
@@ -26,6 +27,7 @@ interface SimulationPageProps {
   onTogglePlay: () => void;
   onReset: () => void;
   onAgentClick: (id: string) => void;
+  onExportState: () => void;
 }
 
 const SimulationPage: React.FC<SimulationPageProps> = ({
@@ -37,7 +39,8 @@ const SimulationPage: React.FC<SimulationPageProps> = ({
   selectedAgentId,
   onTogglePlay,
   onReset,
-  onAgentClick
+  onAgentClick,
+  onExportState
 }) => {
   const arenaRef = useRef<HTMLDivElement>(null);
   const [cols, setCols] = useState(6);
@@ -68,7 +71,7 @@ const SimulationPage: React.FC<SimulationPageProps> = ({
     const updateCols = () => {
       const width = arenaRef.current?.clientWidth || 0;
       if (!width) return;
-      const nextCols = Math.max(2, Math.min(8, Math.floor((width - GAP) / cellWidth)));
+      const nextCols = Math.max(2, Math.min(12, Math.floor((width - GAP) / cellWidth)));
       setCols(nextCols || 2);
     };
 
@@ -176,8 +179,16 @@ const SimulationPage: React.FC<SimulationPageProps> = ({
               <button
                 onClick={onReset}
                 className="w-10 flex items-center justify-center rounded bg-slate-800 border border-slate-700 text-slate-400 hover:text-red-400 hover:border-red-900"
+                title="Reset Simulation"
               >
                 <RefreshCw size={14} />
+              </button>
+              <button
+                onClick={onExportState}
+                className="w-10 flex items-center justify-center rounded bg-slate-800 border border-slate-700 text-slate-400 hover:text-cyan-400 hover:border-cyan-900"
+                title="Export State (Copy to Clipboard)"
+              >
+                <Copy size={14} />
               </button>
             </div>
           </div>

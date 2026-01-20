@@ -315,3 +315,14 @@ body {
 ::-webkit-scrollbar-thumb:hover {
   background: rgba(100, 116, 139, 0.95);
 }
+
+.cursor-pointer {
+  height: auto;
+}
+
+.p-4 {
+  min-height: unset;
+  height: auto;
+  align-items: flex-start;
+  justify-content: flex-start;
+}

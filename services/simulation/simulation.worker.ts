@@ -295,6 +295,7 @@ function sendUpdate(forceFull = false) {
             score: p.score,
             lines: p.lines,
             level: p.level,
+            multiplier: p.getPointsMultiplier(),
             isAlive: p.isAlive,
             genome: p.genome,
             currentPiece: p.currentPiece,

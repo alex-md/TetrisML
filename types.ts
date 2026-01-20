@@ -27,6 +27,7 @@ export interface AgentState {
   score: number;
   lines: number;
   level: number;
+  multiplier: number;
   isAlive: boolean;
   genome: Genome;
   currentPiece?: {
