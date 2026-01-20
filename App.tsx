@@ -293,34 +293,39 @@ const App: React.FC = () => {
     };
 
     const exportState = () => {
-        // Construct a lean, analysis-focused state object with defensive checks
+        // Construct a lean, analysis-focused state object
         const leanState = {
             metadata: {
                 app: "TetrisML",
                 version: "v1.2-analysis-optimized",
                 timestamp: new Date().toISOString(),
-                note: "Verbose data (lineage, telemetry, ghost frames) has been omitted to optimize for token-efficient analysis."
+                note: "Verbose data (raw params for non-elites) has been omitted to optimize for token-efficient analysis."
             },
             stats: statsRef.current,
             history: historyRef.current,
-            leaderboard: (leaderboardRef.current || []).map(entry => {
-                const genome = entry?.genome;
-                if (!genome) return null;
-                return {
-                    id: entry.id,
-                    score: entry.score,
-                    generation: entry.generation,
-                    policy: genome.policy
-                };
-            }).filter(Boolean),
-            currentBrains: (agentsRef.current || []).map(a => {
+            telemetry: (telemetryRef.current || []).slice(-30), // Include recent trends
+            leaderboard: (leaderboardRef.current || []).slice(0, 5).map(entry => ({
+                id: entry.id,
+                score: entry.score,
+                generation: entry.generation,
+                // We keep the policy but exclude the raw params for general entries
+                bornMethod: entry.bornMethod
+            })),
+            // The "Elite" representation - full data for the first agent (Hall of Fame)
+            hallOfFame: agentsRef.current.length > 0 ? {
+                id: agentsRef.current[0].genome.id,
+                summary: agentsRef.current[0].genome.summary,
+                policy: agentsRef.current[0].genome.policy // Keep params for the best one only
+            } : null,
+            // Summaries for the rest of the population
+            populationSummary: (agentsRef.current || []).slice(1).map(a => {
                 const genome = a?.genome;
                 if (!genome) return null;
                 return {
                     id: genome.id,
-                    summary: genome.summary,
-                    mutationRate: mutationRateRef.current,
-                    policy: genome.policy
+                    score: a.score,
+                    bornMethod: genome.bornMethod,
+                    sensitivities: genome.summary.sensitivities
                 };
             }).filter(Boolean),
             timelineSummary: (timelineRef.current || []).map(s => ({
@@ -334,11 +339,11 @@ const App: React.FC = () => {
         const lineCount = stateStr.split('\n').length;
 
         navigator.clipboard.writeText(stateStr).then(() => {
-            console.log(`[Export] Lean state (${lineCount} lines) copied to clipboard.`);
-            alert(`Simulation data exported! (${lineCount} lines). Ready for analysis.`);
+            console.log(`[Export] Optimized analysis state (${lineCount} lines) copied to clipboard.`);
+            alert(`Simulation data exported! (${lineCount} lines). Focused on analysis metrics.`);
         }).catch(err => {
             console.error("[Export] Failed to copy state:", err);
-            alert("Failed to copy state to clipboard. Check the console for permissions issues.");
+            alert("Failed to copy state to clipboard.");
         });
     };
 
