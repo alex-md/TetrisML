@@ -51,6 +51,29 @@ const SimulationPage: React.FC<SimulationPageProps> = ({
     return agents.reduce((prev, current) => (prev.score > current.score ? prev : current), agents[0]);
   }, [agents]);
 
+  const displayedAgents = useMemo(() => {
+    if (agents.length === 0) return [];
+
+    // 1. Sort all agents by score (descending)
+    const sorted = [...agents].sort((a, b) => b.score - a.score);
+
+    // 2. Take top 6
+    const top6 = sorted.slice(0, 6);
+
+    // 3. If selected agent is NOT in top 6, add it as a 7th card
+    if (selectedAgentId) {
+      const isSelectedInTop6 = top6.some(a => a.id === selectedAgentId);
+      if (!isSelectedInTop6) {
+        const selected = agents.find(a => a.id === selectedAgentId);
+        if (selected) {
+          return [...top6, selected];
+        }
+      }
+    }
+
+    return top6;
+  }, [agents, selectedAgentId]);
+
   const selectedAgent = selectedAgentId ? agents.find(a => a.id === selectedAgentId) : null;
   const targetGenome: Genome | null = selectedAgent?.genome || null;
 
@@ -213,8 +236,8 @@ const SimulationPage: React.FC<SimulationPageProps> = ({
           <div className="flex-1 glass-panel rounded-2xl relative overflow-hidden flex flex-col p-1 arena-surface">
             <div className="absolute inset-0 pointer-events-none z-0 opacity-20 bg-[radial-gradient(circle_at_center,_var(--tw-gradient-stops))] from-slate-800 via-transparent to-transparent"></div>
             <SimulationCanvas
-              agents={agents}
-              cols={cols}
+              agents={displayedAgents}
+              cols={3} // Fixed 3 columns for cleaner top-tier view
               onAgentClick={onAgentClick}
             />
             {selectedAgentId && (

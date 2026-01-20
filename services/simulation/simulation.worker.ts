@@ -44,6 +44,7 @@ let bestEverGhost: GhostPlayback | null = null;
 let ghostTargetId: string | null = null;
 let bestEverGhostScore = 0;
 let telemetryHistory: TelemetryFrame[] = [];
+let prevGenMaxFitness = 0; // Baseline for spike detection
 
 const MAX_LINEAGE_HISTORY = 30;
 const MAX_TELEMETRY_HISTORY = 60;
@@ -231,7 +232,7 @@ const computeDiversity = (paramsList: number[][]) => {
     return Math.min(100, Math.round(mean * 40));
 };
 
-const createPopulation = (curriculumOverride?: { gravityScale: number; maxPieces: number; }, parentIds: string[] = []) => {
+const createPopulation = (curriculumOverride?: { gravityScale: number; maxPieces: number; }, parentIds: string[] = [], extinctionCount: number = 0, currentDiversity: number = 100) => {
     population = [];
     populationNoise = [];
     runSequences = GA.generateRunSequences();
@@ -250,37 +251,46 @@ const createPopulation = (curriculumOverride?: { gravityScale: number; maxPieces
         populationNoise.push(new Array(POLICY_PARAM_COUNT).fill(0));
     }
 
-    const pairs = Math.ceil((populationSize - (bestEverGenome ? 1 : 0)) / 2);
+    const remainingSlots = populationSize - population.length;
+
+    // Determine how many immigrants to inject. 
+    // If it's a mass extinction, we use extinctionCount.
     const diversityLimit = 5; // 5%
-    const diversity = computeDiversity(population.map(p => p.genome.policy.params));
-    const shouldInjectImmigrant = diversity < diversityLimit && generation > 5;
+    const shouldInjectSingleImmigrant = currentDiversity < diversityLimit && generation > 5 && extinctionCount === 0;
 
-    for (let i = 0; i < pairs; i++) {
-        const noise = new Array(POLICY_PARAM_COUNT).fill(0).map(randn);
-        const signs = [1, -1];
-        for (const sign of signs) {
-            if (population.length >= populationSize) break;
+    for (let i = 0; i < remainingSlots; i++) {
+        // Simple noise injection logic for ES
+        // We use pairs for antithetic sampling in normal ES, but if we have an odd number of slots 
+        // or we are injecting immigrants, we just fill one by one.
 
-            let params: number[];
-            let bornMethod: Genome['bornMethod'] = 'es-sample';
+        let params: number[];
+        let bornMethod: Genome['bornMethod'] = 'es-sample';
+        let noise = new Array(POLICY_PARAM_COUNT).fill(0);
 
-            // Random Immigrant injection to recover diversity
-            if (shouldInjectImmigrant && population.length === populationSize - 1) {
-                params = createRandomPolicyParams();
-                bornMethod = 'immigrant';
-                console.log(`[ES] Injecting Random Immigrant to recover diversity (${diversity}%).`);
-            } else {
-                params = addScaled(policyMeanParams, noise, sigma * sign);
-            }
-
-            const genome = buildGenome(params, bornMethod, parentIds);
-            const agent = new TetrisGame(genome, runSequences, {
-                gravityScale: curriculum.gravityScale,
-                maxPieces: curriculum.maxPieces
-            });
-            population.push(agent);
-            populationNoise.push(noise.map(v => v * sign));
+        if (i < extinctionCount) {
+            params = createRandomPolicyParams();
+            bornMethod = 'immigrant';
+        } else if (shouldInjectSingleImmigrant && i === remainingSlots - 1) {
+            params = createRandomPolicyParams();
+            bornMethod = 'immigrant';
+            console.log(`[ES] Injecting Random Immigrant to recover diversity (${currentDiversity}%).`);
+        } else {
+            // Standard ES sampling (antithetic)
+            // If i is even, create new noise. If i is odd, use negative of previous noise.
+            // Note: This simplified version just draws fresh noise if not paired perfectly
+            noise = new Array(POLICY_PARAM_COUNT).fill(0).map(randn);
+            const sign = (i % 2 === 0) ? 1 : -1;
+            params = addScaled(policyMeanParams, noise, sigma * sign);
+            noise = noise.map(v => v * sign);
         }
+
+        const genome = buildGenome(params, bornMethod, parentIds);
+        const agent = new TetrisGame(genome, runSequences, {
+            gravityScale: curriculum.gravityScale,
+            maxPieces: curriculum.maxPieces
+        });
+        population.push(agent);
+        populationNoise.push(noise);
     }
 };
 
@@ -396,6 +406,7 @@ function initPopulation() {
     ghostTargetId = null;
     telemetryHistory = [];
     fitnessHistory = [];
+    prevGenMaxFitness = 0;
     stagnationCount = 0;
     populationSize = POPULATION_SIZE;
     policyMeanParams = createSeedPolicyParams();
@@ -552,16 +563,22 @@ function evolve() {
         else stagnationCount = 0;
     }
 
-    // 3. Refined Stagnation Logic (Cooling vs. Wandering)
-    const lastMaxFitness = fitnessHistory[fitnessHistory.length - 2] || 0;
     const currentMaxFitness = Math.max(...fitnesses);
+    const currentDiversity = computeDiversity(population.map(p => p.genome.policy.params));
 
-    if (currentMaxFitness > lastMaxFitness * 1.5 && generation > 5) {
-        // 4. Fitness Spike Detection - Lock in major discoveries
-        // Increased from 0.02 to 0.06 to maintain some diversity
+    // 3. Refined Stagnation & Spike Logic
+    if (currentDiversity <= 10 && currentMaxFitness > prevGenMaxFitness * 1.2 && generation > 5) {
+        // Priority: Diversity. If low, don't lock sigma even if spike detected. 
+        // Heating up slightly to encourage exploration.
+        sigma = Math.max(0.2, sigma);
+        console.log(`[ES] Spike detected but diversity low (${currentDiversity}%). Prioritizing exploration. Sigma: ${sigma.toFixed(3)}`);
+    } else if (currentMaxFitness > prevGenMaxFitness * 1.5 && generation > 5 && currentDiversity > 15) {
+        // Healthy spike - Lock in discovery
         const lockSigma = 0.06;
-        console.log(`[ES] Fitness Spike Detected! Locking discovery. Sigma: ${sigma.toFixed(3)} -> ${lockSigma}`);
-        sigma = lockSigma;
+        if (sigma !== lockSigma) {
+            console.log(`[ES] Fitness Spike Detected! Locking discovery. Sigma: ${sigma.toFixed(3)} -> ${lockSigma}`);
+            sigma = lockSigma;
+        }
         stagnationCount = 0;
     } else if (stagnationCount > 8) {
         // Severe stagnation - escape local minima with high noise (Wandering)
@@ -572,9 +589,11 @@ function evolve() {
         sigma = Math.max(sigmaFloor, sigma - 0.05);
     } else {
         // Healthy growth or minor stagnation - gently anneal
-        // Slower annealing to maintain exploration
         sigma = Math.max(sigmaFloor, sigma - 0.005);
     }
+
+    // Prepare for next generation
+    prevGenMaxFitness = currentMaxFitness;
 
     const noveltySorted = signatures
         .map((sig, i) => ({ sig, novelty: novelties[i] }))
@@ -592,6 +611,17 @@ function evolve() {
     }, population[0]);
 
     const bestScore = Math.max(...population.map(p => p.score), 0);
+    // currentDiversity is already calculated above in the sigma logic section
+
+    let extinctionCount = 0;
+    if (currentDiversity <= 5 && generation > 5) {
+        // Mass Extinction triggered below 5%
+        // Target 20% diversity. Each random immigrant adds significant diversity.
+        // Assuming each immigrant contributes roughly (100 / populationSize) * factor
+        // We'll replace 15-20% of the population to be safe and effective.
+        extinctionCount = Math.ceil(populationSize * 0.20);
+        console.log(`[ES] Mass Extinction Triggered! Diversity: ${currentDiversity}%. Replacing bottom ${extinctionCount} agents.`);
+    }
 
     // Capture snapshot for telemetry BEFORE resetting population
     if (bestAgent) {
@@ -612,7 +642,10 @@ function evolve() {
     }
 
     generation++;
-    createPopulation(getCurriculum(bestScore), bestAgent ? [bestAgent.genome.id] : []);
+    // When calling createPopulation, the lowest performing agents are implicitly replaced 
+    // because we don't carry them over (except the bestAgent's influence on the mean).
+    // The extinctionCount tells createPopulation how many slots to fill with fresh randoms.
+    createPopulation(getCurriculum(bestScore), bestAgent ? [bestAgent.genome.id] : [], extinctionCount, currentDiversity);
     recordLineage();
 }
 
