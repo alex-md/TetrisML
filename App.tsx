@@ -312,35 +312,46 @@ const App: React.FC = () => {
     };
 
     const exportState = () => {
-        const fullState = {
-            population: agentsRef.current.map(a => ({
-                id: a.genome.id,
-                generation: a.genome.generation || statsRef.current.generation,
-                policy: a.genome.policy,
-                summary: a.genome.summary,
-                color: a.genome.color,
-                bornMethod: a.genome.bornMethod,
-                parents: a.genome.parents
-            })),
+        // Construct a lean, analysis-focused state object
+        const leanState = {
+            metadata: {
+                app: "TetrisML",
+                version: "v1.1-analysis-optimized",
+                timestamp: new Date().toISOString(),
+                note: "Verbose data (lineage, telemetry, ghost frames) has been omitted to optimize for token-efficient analysis."
+            },
             stats: statsRef.current,
-            leaderboard: leaderboardRef.current,
-            lineage: lineageRef.current,
-            telemetryHistory: telemetryRef.current,
-            ghost: ghostMetaRef.current || undefined,
-            timeline: timelineRef.current,
             history: historyRef.current,
-            mutationRate: mutationRateRef.current,
-            stagnationCount: stagnationCountRef.current,
-            timestamp: Date.now()
+            leaderboard: leaderboardRef.current.map(entry => ({
+                id: entry.id,
+                score: entry.score,
+                generation: entry.generation,
+                // Include policy as it's critical for "how the brain works"
+                policy: entry.genome.policy
+            })),
+            currentBrains: agentsRef.current.map(a => ({
+                id: a.genome.id,
+                summary: a.genome.summary,
+                mutationRate: mutationRateRef.current,
+                policy: a.genome.policy
+            })),
+            // Only include the metadata of the snapshots/ghosts, not the heavy frames/grids
+            timelineSummary: timelineRef.current.map(s => ({
+                generation: s.generation,
+                score: s.score,
+                lines: s.lines
+            }))
         };
 
-        const stateStr = JSON.stringify(fullState, null, 2);
+        const stateStr = JSON.stringify(leanState, null, 2);
+        const lineCount = stateStr.split('\n').length;
+
         navigator.clipboard.writeText(stateStr).then(() => {
-            console.log("[Export] State copied to clipboard successfully.");
-            alert("Simulation state copied to clipboard!");
+            console.log(`[Export] Lean state (${lineCount} lines) copied to clipboard.`);
+            alert(`Simulation data exported! (${lineCount} lines). Ready for analysis.`);
         }).catch(err => {
             console.error("[Export] Failed to copy state:", err);
-            alert("Failed to copy state to clipboard. Check console for details.");
+            alert("Failed to copy state to clipboard.");
         });
     };
 
