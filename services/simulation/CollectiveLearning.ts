@@ -11,8 +11,10 @@ export interface ArchetypeInsights {
 export interface CollectiveInsights {
     archetypes: ArchetypeInsights[];
     failures: ArchetypeInsights[];
-    dominance: Record<string, number>; // Which archetype is currently most influential
+    dominance: Record<string, number>;
+    seeds: number[][]; // Full-genome parameter vectors for injection
 }
+
 
 /**
  * Extract multi-faceted collective wisdom based on specific evolutionary goals.
@@ -20,7 +22,7 @@ export interface CollectiveInsights {
 export function extractCollectiveInsights(population: TetrisGame[]): CollectiveInsights {
     const aliveAgents = population.filter(a => a.piecesSpawned > 10);
     if (aliveAgents.length < 5) {
-        return { archetypes: [], failures: [], dominance: {} };
+        return { archetypes: [], failures: [], dominance: {}, seeds: [] };
     }
 
     // 1. Define Archetypes for Success
@@ -92,7 +94,10 @@ export function extractCollectiveInsights(population: TetrisGame[]): CollectiveI
         dominance[arc.name] = Math.max(0.1, arcScoreAvg / (avgScore || 1));
     });
 
-    return { archetypes, failures, dominance };
+    // 4. Extract Cultural Seeds (The absolute best representation of each goal)
+    const seeds = archetypes.map(arc => arc.vector);
+
+    return { archetypes, failures, dominance, seeds };
 }
 
 

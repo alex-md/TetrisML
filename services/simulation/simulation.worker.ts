@@ -245,16 +245,15 @@ const computeDiversity = (paramsList: number[][]) => {
     return Math.min(100, Math.round(mean * 40));
 };
 
-const createPopulation = (curriculumOverride?: { gravityScale: number; maxPieces: number; }, parentIds: string[] = [], extinctionCount: number = 0, currentDiversity: number = 100) => {
+const createPopulation = (curriculumOverride?: { gravityScale: number; maxPieces: number; }, parentIds: string[] = [], extinctionCount: number = 0, currentDiversity: number = 100, seeds: number[][] = []) => {
     population = [];
     populationNoise = [];
     runSequences = GA.generateRunSequences();
 
     const curriculum = curriculumOverride ?? getCurriculum(0);
 
-    // Hall of Fame: Inject the absolute best genome if it exists
+    // 1. Hall of Fame injection
     if (bestEverGenome) {
-        // We inject it without noise to preserve it perfectly
         const genome = { ...bestEverGenome, generation: generation, bornMethod: 'hall-of-fame' as any };
         const agent = new TetrisGame(genome, runSequences, {
             gravityScale: curriculum.gravityScale,
@@ -263,6 +262,18 @@ const createPopulation = (curriculumOverride?: { gravityScale: number; maxPieces
         population.push(agent);
         populationNoise.push(new Array(POLICY_PARAM_COUNT).fill(0));
     }
+
+    // 2. Cultural Seed Injection (The full 51-gene "Wisdom" from previous successes)
+    seeds.forEach((seedParams, idx) => {
+        const genome = buildGenome(seedParams, 'elite', parentIds);
+        const agent = new TetrisGame(genome, runSequences, {
+            gravityScale: curriculum.gravityScale,
+            maxPieces: curriculum.maxPieces
+        });
+        population.push(agent);
+        populationNoise.push(new Array(POLICY_PARAM_COUNT).fill(0)); // Perfect seeds start without noise
+    });
+
 
     const remainingSlots = populationSize - population.length;
 
@@ -573,7 +584,7 @@ function evolve() {
             .slice(0, 3)
             .map(([k, v]) => `${k} (${v.toFixed(2)})`)
             .join(', ');
-        console.log(`[Collective Learning] Gen ${generation} Cultivating: ${dominant.name} (Top Traits: ${topTraits})`);
+        console.log(`[Collective Learning] Gen ${generation} Cultivating: ${dominant.name} | Full-Spectrum Nudge across all 51 genes (${POLICY_PARAM_COUNT} weights) | Primary Drivers: ${topTraits}`);
     }
 
 
@@ -674,10 +685,7 @@ function evolve() {
     }
 
     generation++;
-    // When calling createPopulation, the lowest performing agents are implicitly replaced 
-    // because we don't carry them over (except the bestAgent's influence on the mean).
-    // The extinctionCount tells createPopulation how many slots to fill with fresh randoms.
-    createPopulation(getCurriculum(bestScore), bestAgent ? [bestAgent.genome.id] : [], extinctionCount, currentDiversity);
+    createPopulation(getCurriculum(bestScore), bestAgent ? [bestAgent.genome.id] : [], extinctionCount, currentDiversity, collectiveInsights.seeds);
     recordLineage();
 }
 
