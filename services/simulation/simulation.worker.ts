@@ -19,6 +19,7 @@ import {
     POLICY_PARAM_COUNT,
     createSeedPolicyParams,
     createRandomPolicyParams,
+    createSuperBotParams,
     summarizePolicy
 } from './policy';
 
@@ -786,6 +787,32 @@ self.onmessage = (e: MessageEvent<MainMessage>) => {
         }
 
         console.log(`[Worker] Deep State Restored. Gen: ${generation}, Agents: ${populationSize}, Sigma: ${sigma.toFixed(3)}`);
+        sendUpdate();
+    }
+    if (type === 'INJECT_GENOME') {
+        const genome = payload as Genome;
+        const index = Math.floor(Math.random() * population.length);
+        const curriculum = getCurriculum(Math.max(...population.map(p => p.score)));
+
+        population[index] = new TetrisGame(genome, runSequences, curriculum);
+        populationNoise[index] = new Array(POLICY_PARAM_COUNT).fill(0);
+
+        console.log(`[Worker] Super Bot Injected! Replacing specimen: ${index}`);
+        sendUpdate();
+    }
+    if (type === 'SUMMON_SUPER_BOT' as any) {
+        const params = createSuperBotParams();
+        const genome = buildGenome(params, 'elite', []);
+        genome.id = `SUPER-${GA.generateId()}`;
+        genome.color = '#fbbf24'; // Goldenrod
+
+        const index = Math.floor(Math.random() * population.length);
+        const curriculum = getCurriculum(Math.max(...population.map(p => p.score)));
+
+        population[index] = new TetrisGame(genome, runSequences, curriculum);
+        populationNoise[index] = new Array(POLICY_PARAM_COUNT).fill(0);
+
+        console.log(`[Worker] Super Bot Summoned! Replacing specimen: ${index}`);
         sendUpdate();
     }
 };

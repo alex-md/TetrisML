@@ -363,6 +363,10 @@ const App: React.FC = () => {
         }
     };
 
+    const summonSuperBot = () => {
+        workerRef.current?.postMessage({ type: 'SUMMON_SUPER_BOT' });
+    };
+
 
     const handleAgentClick = (id: string) => {
         setSelectedAgentId(id);
@@ -409,6 +413,7 @@ const App: React.FC = () => {
                             onReset={reset}
                             onAgentClick={handleAgentClick}
                             onExportState={exportState}
+                            onSummonSuperBot={summonSuperBot}
                         />
                     )}
                     {route === 'highscores' && (

@@ -109,6 +109,56 @@ export const createSeedPolicyParams = (rng = Math.random) => {
     return params;
 };
 
+export const createSuperBotParams = () => {
+    const params = new Array(POLICY_PARAM_COUNT).fill(0);
+    const inputSize = POLICY_INPUT_SIZE;
+    const hiddenSize = POLICY_HIDDEN_SIZE;
+
+    const w1Offset = 0;
+    const b1Offset = w1Offset + inputSize * hiddenSize;
+    const w2Offset = b1Offset + hiddenSize;
+    const b2Offset = w2Offset + hiddenSize * 2;
+
+    // The user provided specific weights for features.
+    // We map these to the first hidden unit's weights (w1[0, i]) 
+    // and set the hidden-to-output weight (w2[0]) to 1.0.
+
+    // Feature mapping based on POLICY_FEATURES
+    const userWeights: Record<string, number> = {
+        "holes": -1.0,
+        "holes_2": -0.88, // holes in column 2 (index 2 in holes_i array)
+        "linesCleared": 0.795,
+        "erodedCells": 0.513,
+        "greed": 0.529,
+        "tSpin": 0.453,
+        "bumpiness": -0.375,
+        "riskAversion": -0.318,
+        "height_1": -0.485 // height of column 1
+    };
+
+    for (let i = 0; i < inputSize; i++) {
+        const featureName = POLICY_FEATURES[i];
+        if (userWeights[featureName] !== undefined) {
+            params[w1Offset + i] = userWeights[featureName];
+        } else {
+            // Neutral/default weights for other features
+            params[w1Offset + i] = 0;
+        }
+    }
+
+    // Connect hidden unit 0 to the Score output
+    params[w2Offset + 0] = 1.0;
+
+    // Bias for hidden unit 0
+    params[b1Offset + 0] = 0;
+
+    // Bias for outputs (Score and Speed)
+    params[b2Offset] = 0; // Score
+    params[b2Offset + 1] = 0.5; // Neutral Speed
+
+    return params;
+};
+
 export const createRandomPolicyParams = (rng = Math.random) => {
     const params = new Array(POLICY_PARAM_COUNT);
     for (let i = 0; i < POLICY_PARAM_COUNT; i++) {

@@ -28,6 +28,7 @@ interface SimulationPageProps {
   onReset: () => void;
   onAgentClick: (id: string) => void;
   onExportState: () => void;
+  onSummonSuperBot: () => void;
 }
 
 const SimulationPage: React.FC<SimulationPageProps> = ({
@@ -40,7 +41,8 @@ const SimulationPage: React.FC<SimulationPageProps> = ({
   onTogglePlay,
   onReset,
   onAgentClick,
-  onExportState
+  onExportState,
+  onSummonSuperBot
 }) => {
   const arenaRef = useRef<HTMLDivElement>(null);
   const [cols, setCols] = useState(6);
@@ -212,6 +214,13 @@ const SimulationPage: React.FC<SimulationPageProps> = ({
                 title="Export State (Copy to Clipboard)"
               >
                 <Copy size={14} />
+              </button>
+              <button
+                onClick={onSummonSuperBot}
+                className="w-10 flex items-center justify-center rounded bg-slate-800 border border-slate-700 text-amber-500 hover:text-amber-400 hover:border-amber-900 animate-pulse"
+                title="Summon Super Bot (Injected Weights)"
+              >
+                <Zap size={14} />
               </button>
             </div>
           </div>

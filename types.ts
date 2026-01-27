@@ -176,5 +176,5 @@ export type MainMessage =
   | { type: 'PAUSE' }
   | { type: 'RESUME' }
   | { type: 'RESET' }
-  | { type: 'INJECT_CONFIG'; payload: Partial<SimulationStats> }
-  | { type: 'IMPORT_STATE'; payload: FullSimulationState };
+  | { type: 'IMPORT_STATE'; payload: FullSimulationState }
+  | { type: 'INJECT_GENOME'; payload: Genome };
